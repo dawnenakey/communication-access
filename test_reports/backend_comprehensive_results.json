@@ -1,0 +1,118 @@
+{
+  "summary": {
+    "tests_run": 18,
+    "tests_passed": 18,
+    "success_rate": 100.0
+  },
+  "results": [
+    {
+      "test": "API Root",
+      "success": true,
+      "details": "Status: 200",
+      "timestamp": "2025-12-29T18:15:32.037614"
+    },
+    {
+      "test": "Health Check",
+      "success": true,
+      "details": "Status: 200",
+      "timestamp": "2025-12-29T18:15:32.078644"
+    },
+    {
+      "test": "Get Signs (Public)",
+      "success": true,
+      "details": "Status: 200",
+      "timestamp": "2025-12-29T18:15:32.119374"
+    },
+    {
+      "test": "Get Me (Authenticated)",
+      "success": true,
+      "details": "Status: 200",
+      "timestamp": "2025-12-29T18:15:32.165995"
+    },
+    {
+      "test": "Get History",
+      "success": true,
+      "details": "Status: 200",
+      "timestamp": "2025-12-29T18:15:32.203400"
+    },
+    {
+      "test": "Create History Entry",
+      "success": true,
+      "details": "Status: 200",
+      "timestamp": "2025-12-29T18:15:32.271892"
+    },
+    {
+      "test": "Search Signs (Empty)",
+      "success": true,
+      "details": "Status: 200",
+      "timestamp": "2025-12-29T18:15:32.310443"
+    },
+    {
+      "test": "Create Sign",
+      "success": true,
+      "details": "Status: 200",
+      "timestamp": "2025-12-29T18:15:32.378787"
+    },
+    {
+      "test": "Get Sign by ID",
+      "success": true,
+      "details": "Status: 200",
+      "timestamp": "2025-12-29T18:15:32.420800"
+    },
+    {
+      "test": "Update Sign",
+      "success": true,
+      "details": "Status: 200",
+      "timestamp": "2025-12-29T18:15:32.461637"
+    },
+    {
+      "test": "Search Updated Sign",
+      "success": true,
+      "details": "Status: 200",
+      "timestamp": "2025-12-29T18:15:32.503291"
+    },
+    {
+      "test": "Search for Hello Sign",
+      "success": true,
+      "details": "Status: 200",
+      "timestamp": "2025-12-29T18:15:32.540549"
+    },
+    {
+      "test": "Create Text-to-ASL History",
+      "success": true,
+      "details": "Status: 200",
+      "timestamp": "2025-12-29T18:15:32.578561"
+    },
+    {
+      "test": "Get Non-existent Sign",
+      "success": true,
+      "details": "Status: 404",
+      "timestamp": "2025-12-29T18:15:32.656734"
+    },
+    {
+      "test": "Invalid Endpoint",
+      "success": true,
+      "details": "Status: 404",
+      "timestamp": "2025-12-29T18:15:32.698918"
+    },
+    {
+      "test": "Delete Created Sign",
+      "success": true,
+      "details": "Status: 200",
+      "timestamp": "2025-12-29T18:15:32.745954"
+    },
+    {
+      "test": "Delete History Entry",
+      "success": true,
+      "details": "Status: 200",
+      "timestamp": "2025-12-29T18:15:32.785064"
+    },
+    {
+      "test": "Logout",
+      "success": true,
+      "details": "Status: 200",
+      "timestamp": "2025-12-29T18:15:32.819437"
+    }
+  ],
+  "timestamp": "2025-12-29T18:15:32.820328"
+}
