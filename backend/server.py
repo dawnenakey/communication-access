@@ -1,15 +1,17 @@
-from fastapi import FastAPI, APIRouter
+from fastapi import FastAPI, APIRouter, HTTPException, Request, Response, UploadFile, File, Form, Depends
+from fastapi.responses import JSONResponse
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import logging
 from pathlib import Path
-from pydantic import BaseModel, Field, ConfigDict
-from typing import List
+from pydantic import BaseModel, Field
+from typing import List, Optional
 import uuid
-from datetime import datetime, timezone
-
+from datetime import datetime, timezone, timedelta
+import httpx
+import base64
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -19,52 +21,376 @@ mongo_url = os.environ['MONGO_URL']
 client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ['DB_NAME']]
 
-# Create the main app without a prefix
+# Create the main app
 app = FastAPI()
 
 # Create a router with the /api prefix
 api_router = APIRouter(prefix="/api")
 
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
-# Define Models
-class StatusCheck(BaseModel):
-    model_config = ConfigDict(extra="ignore")  # Ignore MongoDB's _id field
+# ============== MODELS ==============
+
+class User(BaseModel):
+    user_id: str
+    email: str
+    name: str
+    picture: Optional[str] = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+class UserSession(BaseModel):
+    user_id: str
+    session_token: str
+    expires_at: datetime
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+class SignWord(BaseModel):
+    sign_id: str = Field(default_factory=lambda: f"sign_{uuid.uuid4().hex[:12]}")
+    word: str
+    description: Optional[str] = None
+    image_data: str  # Base64 encoded image
+    image_type: str  # e.g., 'image/png', 'image/jpeg'
+    created_by: str
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+class SignWordCreate(BaseModel):
+    word: str
+    description: Optional[str] = None
+
+class SignWordUpdate(BaseModel):
+    word: Optional[str] = None
+    description: Optional[str] = None
+
+class TranslationHistory(BaseModel):
+    history_id: str = Field(default_factory=lambda: f"hist_{uuid.uuid4().hex[:12]}")
+    user_id: str
+    input_type: str  # 'asl_to_text' or 'text_to_asl'
+    input_content: str  # Either recognized text or input text
+    output_content: str  # Either text result or sign_ids
+    confidence: Optional[float] = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+class TranslationHistoryCreate(BaseModel):
+    input_type: str
+    input_content: str
+    output_content: str
+    confidence: Optional[float] = None
+
+# ============== AUTH HELPERS ==============
+
+async def get_current_user(request: Request) -> User:
+    """Get current user from session token in cookie or Authorization header"""
+    session_token = request.cookies.get("session_token")
     
-    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    client_name: str
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    if not session_token:
+        auth_header = request.headers.get("Authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            session_token = auth_header.split(" ")[1]
+    
+    if not session_token:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    # Find session
+    session_doc = await db.user_sessions.find_one(
+        {"session_token": session_token},
+        {"_id": 0}
+    )
+    
+    if not session_doc:
+        raise HTTPException(status_code=401, detail="Invalid session")
+    
+    # Check expiry with timezone handling
+    expires_at = session_doc["expires_at"]
+    if isinstance(expires_at, str):
+        expires_at = datetime.fromisoformat(expires_at)
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    if expires_at < datetime.now(timezone.utc):
+        raise HTTPException(status_code=401, detail="Session expired")
+    
+    # Find user
+    user_doc = await db.users.find_one(
+        {"user_id": session_doc["user_id"]},
+        {"_id": 0}
+    )
+    
+    if not user_doc:
+        raise HTTPException(status_code=401, detail="User not found")
+    
+    return User(**user_doc)
 
-class StatusCheckCreate(BaseModel):
-    client_name: str
+async def get_optional_user(request: Request) -> Optional[User]:
+    """Get current user if authenticated, otherwise return None"""
+    try:
+        return await get_current_user(request)
+    except HTTPException:
+        return None
 
-# Add your routes to the router instead of directly to app
+# ============== AUTH ROUTES ==============
+
+@api_router.post("/auth/session")
+async def create_session(request: Request, response: Response):
+    """Exchange session_id for session_token and user data"""
+    data = await request.json()
+    session_id = data.get("session_id")
+    
+    if not session_id:
+        raise HTTPException(status_code=400, detail="session_id required")
+    
+    # Call Emergent Auth API to get user data
+    async with httpx.AsyncClient() as client_http:
+        try:
+            auth_response = await client_http.get(
+                "https://demobackend.emergentagent.com/auth/v1/env/oauth/session-data",
+                headers={"X-Session-ID": session_id}
+            )
+            
+            if auth_response.status_code != 200:
+                raise HTTPException(status_code=401, detail="Invalid session_id")
+            
+            user_data = auth_response.json()
+        except Exception as e:
+            logger.error(f"Auth API error: {e}")
+            raise HTTPException(status_code=500, detail="Authentication service error")
+    
+    # Check if user exists
+    existing_user = await db.users.find_one(
+        {"email": user_data["email"]},
+        {"_id": 0}
+    )
+    
+    if existing_user:
+        user_id = existing_user["user_id"]
+        # Update user info if needed
+        await db.users.update_one(
+            {"user_id": user_id},
+            {"$set": {
+                "name": user_data["name"],
+                "picture": user_data.get("picture")
+            }}
+        )
+    else:
+        # Create new user
+        user_id = f"user_{uuid.uuid4().hex[:12]}"
+        new_user = {
+            "user_id": user_id,
+            "email": user_data["email"],
+            "name": user_data["name"],
+            "picture": user_data.get("picture"),
+            "created_at": datetime.now(timezone.utc).isoformat()
+        }
+        await db.users.insert_one(new_user)
+    
+    # Create session
+    session_token = user_data.get("session_token", f"sess_{uuid.uuid4().hex}")
+    expires_at = datetime.now(timezone.utc) + timedelta(days=7)
+    
+    session_doc = {
+        "user_id": user_id,
+        "session_token": session_token,
+        "expires_at": expires_at.isoformat(),
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    
+    # Remove old sessions for this user
+    await db.user_sessions.delete_many({"user_id": user_id})
+    await db.user_sessions.insert_one(session_doc)
+    
+    # Set cookie
+    response.set_cookie(
+        key="session_token",
+        value=session_token,
+        httponly=True,
+        secure=True,
+        samesite="none",
+        path="/",
+        max_age=7 * 24 * 60 * 60  # 7 days
+    )
+    
+    # Get user doc
+    user_doc = await db.users.find_one({"user_id": user_id}, {"_id": 0})
+    
+    return {
+        "user": user_doc,
+        "session_token": session_token
+    }
+
+@api_router.get("/auth/me")
+async def get_me(user: User = Depends(get_current_user)):
+    """Get current authenticated user"""
+    return user.model_dump()
+
+@api_router.post("/auth/logout")
+async def logout(request: Request, response: Response):
+    """Logout user and clear session"""
+    session_token = request.cookies.get("session_token")
+    
+    if session_token:
+        await db.user_sessions.delete_many({"session_token": session_token})
+    
+    response.delete_cookie(
+        key="session_token",
+        path="/",
+        secure=True,
+        samesite="none"
+    )
+    
+    return {"message": "Logged out successfully"}
+
+# ============== SIGN DICTIONARY ROUTES ==============
+
+@api_router.get("/signs", response_model=List[dict])
+async def get_signs(user: Optional[User] = Depends(get_optional_user)):
+    """Get all signs in the dictionary"""
+    signs = await db.signs.find({}, {"_id": 0}).to_list(1000)
+    return signs
+
+@api_router.get("/signs/{sign_id}")
+async def get_sign(sign_id: str):
+    """Get a specific sign by ID"""
+    sign = await db.signs.find_one({"sign_id": sign_id}, {"_id": 0})
+    if not sign:
+        raise HTTPException(status_code=404, detail="Sign not found")
+    return sign
+
+@api_router.post("/signs")
+async def create_sign(
+    word: str = Form(...),
+    description: str = Form(None),
+    image: UploadFile = File(...),
+    user: User = Depends(get_current_user)
+):
+    """Create a new sign entry with image upload"""
+    # Read and encode image
+    image_content = await image.read()
+    image_base64 = base64.b64encode(image_content).decode('utf-8')
+    
+    sign_doc = {
+        "sign_id": f"sign_{uuid.uuid4().hex[:12]}",
+        "word": word.lower().strip(),
+        "description": description,
+        "image_data": image_base64,
+        "image_type": image.content_type,
+        "created_by": user.user_id,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "updated_at": datetime.now(timezone.utc).isoformat()
+    }
+    
+    await db.signs.insert_one(sign_doc)
+    
+    # Return without _id
+    sign_doc.pop("_id", None)
+    return sign_doc
+
+@api_router.put("/signs/{sign_id}")
+async def update_sign(
+    sign_id: str,
+    word: str = Form(None),
+    description: str = Form(None),
+    image: UploadFile = File(None),
+    user: User = Depends(get_current_user)
+):
+    """Update a sign entry"""
+    existing = await db.signs.find_one({"sign_id": sign_id}, {"_id": 0})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Sign not found")
+    
+    update_data = {"updated_at": datetime.now(timezone.utc).isoformat()}
+    
+    if word:
+        update_data["word"] = word.lower().strip()
+    if description is not None:
+        update_data["description"] = description
+    if image:
+        image_content = await image.read()
+        update_data["image_data"] = base64.b64encode(image_content).decode('utf-8')
+        update_data["image_type"] = image.content_type
+    
+    await db.signs.update_one({"sign_id": sign_id}, {"$set": update_data})
+    
+    updated = await db.signs.find_one({"sign_id": sign_id}, {"_id": 0})
+    return updated
+
+@api_router.delete("/signs/{sign_id}")
+async def delete_sign(sign_id: str, user: User = Depends(get_current_user)):
+    """Delete a sign entry"""
+    result = await db.signs.delete_one({"sign_id": sign_id})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Sign not found")
+    return {"message": "Sign deleted successfully"}
+
+@api_router.get("/signs/search/{word}")
+async def search_signs(word: str):
+    """Search signs by word"""
+    signs = await db.signs.find(
+        {"word": {"$regex": word.lower(), "$options": "i"}},
+        {"_id": 0}
+    ).to_list(100)
+    return signs
+
+# ============== TRANSLATION HISTORY ROUTES ==============
+
+@api_router.get("/history", response_model=List[dict])
+async def get_history(user: User = Depends(get_current_user)):
+    """Get translation history for current user"""
+    history = await db.translation_history.find(
+        {"user_id": user.user_id},
+        {"_id": 0}
+    ).sort("created_at", -1).to_list(100)
+    return history
+
+@api_router.post("/history")
+async def create_history(
+    history_data: TranslationHistoryCreate,
+    user: User = Depends(get_current_user)
+):
+    """Save a translation to history"""
+    history_doc = {
+        "history_id": f"hist_{uuid.uuid4().hex[:12]}",
+        "user_id": user.user_id,
+        "input_type": history_data.input_type,
+        "input_content": history_data.input_content,
+        "output_content": history_data.output_content,
+        "confidence": history_data.confidence,
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    
+    await db.translation_history.insert_one(history_doc)
+    history_doc.pop("_id", None)
+    return history_doc
+
+@api_router.delete("/history/{history_id}")
+async def delete_history(history_id: str, user: User = Depends(get_current_user)):
+    """Delete a history entry"""
+    result = await db.translation_history.delete_one({
+        "history_id": history_id,
+        "user_id": user.user_id
+    })
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="History entry not found")
+    return {"message": "History entry deleted"}
+
+@api_router.delete("/history")
+async def clear_history(user: User = Depends(get_current_user)):
+    """Clear all history for current user"""
+    await db.translation_history.delete_many({"user_id": user.user_id})
+    return {"message": "History cleared"}
+
+# ============== UTILITY ROUTES ==============
+
 @api_router.get("/")
 async def root():
-    return {"message": "Hello World"}
+    return {"message": "SignSync AI API", "version": "1.0.0"}
 
-@api_router.post("/status", response_model=StatusCheck)
-async def create_status_check(input: StatusCheckCreate):
-    status_dict = input.model_dump()
-    status_obj = StatusCheck(**status_dict)
-    
-    # Convert to dict and serialize datetime to ISO string for MongoDB
-    doc = status_obj.model_dump()
-    doc['timestamp'] = doc['timestamp'].isoformat()
-    
-    _ = await db.status_checks.insert_one(doc)
-    return status_obj
-
-@api_router.get("/status", response_model=List[StatusCheck])
-async def get_status_checks():
-    # Exclude MongoDB's _id field from the query results
-    status_checks = await db.status_checks.find({}, {"_id": 0}).to_list(1000)
-    
-    # Convert ISO string timestamps back to datetime objects
-    for check in status_checks:
-        if isinstance(check['timestamp'], str):
-            check['timestamp'] = datetime.fromisoformat(check['timestamp'])
-    
-    return status_checks
+@api_router.get("/health")
+async def health_check():
+    return {"status": "healthy", "timestamp": datetime.now(timezone.utc).isoformat()}
 
 # Include the router in the main app
 app.include_router(api_router)
@@ -76,13 +402,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
 
 @app.on_event("shutdown")
 async def shutdown_db_client():
