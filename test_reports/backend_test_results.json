@@ -1,0 +1,100 @@
+{
+  "summary": {
+    "tests_run": 15,
+    "tests_passed": 8,
+    "success_rate": 53.333333333333336
+  },
+  "results": [
+    {
+      "test": "API Root",
+      "success": true,
+      "details": "Status: 200, Expected: 200",
+      "timestamp": "2025-12-29T18:13:15.147846"
+    },
+    {
+      "test": "Health Check",
+      "success": true,
+      "details": "Status: 200, Expected: 200",
+      "timestamp": "2025-12-29T18:13:15.187756"
+    },
+    {
+      "test": "Get Signs (No Auth)",
+      "success": true,
+      "details": "Status: 200, Expected: 200",
+      "timestamp": "2025-12-29T18:13:15.231640"
+    },
+    {
+      "test": "Get Me (No Auth)",
+      "success": true,
+      "details": "Status: 401, Expected: 401",
+      "timestamp": "2025-12-29T18:13:15.268703"
+    },
+    {
+      "test": "Create Session (Invalid)",
+      "success": false,
+      "details": "Status: 520, Expected: 401, Response: {'detail': 'Authentication service error'}",
+      "timestamp": "2025-12-29T18:13:15.410576"
+    },
+    {
+      "test": "Get Me (With Auth)",
+      "success": false,
+      "details": "Status: 401, Expected: 200, Response: {'detail': 'Invalid session'}",
+      "timestamp": "2025-12-29T18:13:16.739702"
+    },
+    {
+      "test": "Get History",
+      "success": false,
+      "details": "Status: 401, Expected: 200, Response: {'detail': 'Invalid session'}",
+      "timestamp": "2025-12-29T18:13:16.783746"
+    },
+    {
+      "test": "Create History",
+      "success": false,
+      "details": "Status: 401, Expected: 200, Response: {'detail': 'Invalid session'}",
+      "timestamp": "2025-12-29T18:13:16.821331"
+    },
+    {
+      "test": "Logout",
+      "success": true,
+      "details": "Status: 200, Expected: 200",
+      "timestamp": "2025-12-29T18:13:16.866794"
+    },
+    {
+      "test": "Search Signs (Not Found)",
+      "success": true,
+      "details": "Status: 200, Expected: 200",
+      "timestamp": "2025-12-29T18:13:16.910033"
+    },
+    {
+      "test": "Create Sign",
+      "success": false,
+      "details": "Status: 401, Expected: 200, Response: {'detail': 'Invalid session'}",
+      "timestamp": "2025-12-29T18:13:16.950181"
+    },
+    {
+      "test": "Non-existent Endpoint",
+      "success": true,
+      "details": "Status: 404, Expected: 404",
+      "timestamp": "2025-12-29T18:13:16.982788"
+    },
+    {
+      "test": "Get Invalid Sign ID",
+      "success": true,
+      "details": "Status: 404, Expected: 404",
+      "timestamp": "2025-12-29T18:13:17.026234"
+    },
+    {
+      "test": "Create Sign (No Image)",
+      "success": false,
+      "details": "Status: 401, Expected: 422, Response: {'detail': 'Invalid session'}",
+      "timestamp": "2025-12-29T18:13:17.063743"
+    },
+    {
+      "test": "Create Sign (No Word)",
+      "success": false,
+      "details": "Status: 401, Expected: 422, Response: {'detail': 'Invalid session'}",
+      "timestamp": "2025-12-29T18:13:17.100088"
+    }
+  ],
+  "timestamp": "2025-12-29T18:13:17.100949"
+}
