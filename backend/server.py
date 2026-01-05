@@ -10,7 +10,6 @@ from pydantic import BaseModel, Field
 from typing import List, Optional
 import uuid
 from datetime import datetime, timezone, timedelta
-import httpx
 import base64
 
 ROOT_DIR = Path(__file__).parent
@@ -134,45 +133,28 @@ async def get_optional_user(request: Request) -> Optional[User]:
 
 # ============== AUTH ROUTES ==============
 
-@api_router.post("/auth/session")
-async def create_session(request: Request, response: Response):
-    """Exchange session_id for session_token and user data"""
-    data = await request.json()
-    session_id = data.get("session_id")
-    
-    if not session_id:
-        raise HTTPException(status_code=400, detail="session_id required")
-    
-    # Call Emergent Auth API to get user data
-    async with httpx.AsyncClient() as client_http:
-        try:
-            auth_response = await client_http.get(
-                "https://demobackend.emergentagent.com/auth/v1/env/oauth/session-data",
-                headers={"X-Session-ID": session_id}
-            )
-            
-            if auth_response.status_code != 200:
-                raise HTTPException(status_code=401, detail="Invalid session_id")
-            
-            user_data = auth_response.json()
-        except Exception as e:
-            logger.error(f"Auth API error: {e}")
-            raise HTTPException(status_code=500, detail="Authentication service error")
-    
+class LoginRequest(BaseModel):
+    email: str
+    name: str
+    picture: Optional[str] = None
+
+@api_router.post("/auth/login")
+async def login(login_data: LoginRequest, response: Response):
+    """Create or update user and create session"""
     # Check if user exists
     existing_user = await db.users.find_one(
-        {"email": user_data["email"]},
+        {"email": login_data.email},
         {"_id": 0}
     )
-    
+
     if existing_user:
         user_id = existing_user["user_id"]
         # Update user info if needed
         await db.users.update_one(
             {"user_id": user_id},
             {"$set": {
-                "name": user_data["name"],
-                "picture": user_data.get("picture")
+                "name": login_data.name,
+                "picture": login_data.picture
             }}
         )
     else:
@@ -180,28 +162,28 @@ async def create_session(request: Request, response: Response):
         user_id = f"user_{uuid.uuid4().hex[:12]}"
         new_user = {
             "user_id": user_id,
-            "email": user_data["email"],
-            "name": user_data["name"],
-            "picture": user_data.get("picture"),
+            "email": login_data.email,
+            "name": login_data.name,
+            "picture": login_data.picture,
             "created_at": datetime.now(timezone.utc).isoformat()
         }
         await db.users.insert_one(new_user)
-    
+
     # Create session
-    session_token = user_data.get("session_token", f"sess_{uuid.uuid4().hex}")
+    session_token = f"sess_{uuid.uuid4().hex}"
     expires_at = datetime.now(timezone.utc) + timedelta(days=7)
-    
+
     session_doc = {
         "user_id": user_id,
         "session_token": session_token,
         "expires_at": expires_at.isoformat(),
         "created_at": datetime.now(timezone.utc).isoformat()
     }
-    
+
     # Remove old sessions for this user
     await db.user_sessions.delete_many({"user_id": user_id})
     await db.user_sessions.insert_one(session_doc)
-    
+
     # Set cookie
     response.set_cookie(
         key="session_token",
@@ -212,10 +194,75 @@ async def create_session(request: Request, response: Response):
         path="/",
         max_age=7 * 24 * 60 * 60  # 7 days
     )
-    
+
     # Get user doc
     user_doc = await db.users.find_one({"user_id": user_id}, {"_id": 0})
-    
+
+    return {
+        "user": user_doc,
+        "session_token": session_token
+    }
+
+@api_router.post("/auth/session")
+async def create_session(request: Request, response: Response):
+    """Create session from email/name (simplified auth)"""
+    data = await request.json()
+
+    email = data.get("email")
+    name = data.get("name", "User")
+    picture = data.get("picture")
+
+    if not email:
+        raise HTTPException(status_code=400, detail="email required")
+
+    # Check if user exists
+    existing_user = await db.users.find_one(
+        {"email": email},
+        {"_id": 0}
+    )
+
+    if existing_user:
+        user_id = existing_user["user_id"]
+        await db.users.update_one(
+            {"user_id": user_id},
+            {"$set": {"name": name, "picture": picture}}
+        )
+    else:
+        user_id = f"user_{uuid.uuid4().hex[:12]}"
+        new_user = {
+            "user_id": user_id,
+            "email": email,
+            "name": name,
+            "picture": picture,
+            "created_at": datetime.now(timezone.utc).isoformat()
+        }
+        await db.users.insert_one(new_user)
+
+    session_token = f"sess_{uuid.uuid4().hex}"
+    expires_at = datetime.now(timezone.utc) + timedelta(days=7)
+
+    session_doc = {
+        "user_id": user_id,
+        "session_token": session_token,
+        "expires_at": expires_at.isoformat(),
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+
+    await db.user_sessions.delete_many({"user_id": user_id})
+    await db.user_sessions.insert_one(session_doc)
+
+    response.set_cookie(
+        key="session_token",
+        value=session_token,
+        httponly=True,
+        secure=True,
+        samesite="none",
+        path="/",
+        max_age=7 * 24 * 60 * 60
+    )
+
+    user_doc = await db.users.find_one({"user_id": user_id}, {"_id": 0})
+
     return {
         "user": user_doc,
         "session_token": session_token

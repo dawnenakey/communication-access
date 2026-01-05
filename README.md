@@ -1,280 +1,621 @@
-# SLR Blender Synthetic Data Pipeline
+# SignSync AI - ASL Communication Access Platform
 
-**Author:** Dawnena Key / SonZo AI  
+**Author:** Dawnena Key / SonZo AI
 **License:** Proprietary - Patent Pending
 
-Generate synthetic ASL handshape training data using Blender to augment your Sign Language Recognition (SLR) model training.
+A full-stack application for American Sign Language (ASL) translation and learning, featuring real-time sign recognition, a sign dictionary, and translation history tracking.
 
 ---
 
-## Files Overview
+## Table of Contents
 
-| File | Purpose |
-|------|---------|
-| `asl_handshapes.py` | ASL handshape definitions (A-Z, 0-9, classifiers) as MANO pose parameters |
-| `generate_synthetic_asl.py` | Blender script to generate synthetic hand images |
-| `dataset_loader.py` | PyTorch dataset loader for training integration |
-| `README.md` | This file |
+- [Architecture](#architecture)
+- [Tech Stack](#tech-stack)
+- [Prerequisites](#prerequisites)
+- [Local Development Setup](#local-development-setup)
+- [Testing](#testing)
+- [EC2 Deployment Guide](#ec2-deployment-guide)
+- [API Documentation](#api-documentation)
+- [ML Pipeline](#ml-pipeline)
+- [Troubleshooting](#troubleshooting)
 
 ---
 
-## Quick Start
+## Architecture
 
-### 1. Install Blender
+```
+┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
+│   React Frontend│────▶│  FastAPI Backend│────▶│    MongoDB      │
+│   (Port 3000)   │     │   (Port 8000)   │     │   Database      │
+└─────────────────┘     └─────────────────┘     └─────────────────┘
+         │                       │
+         │                       ▼
+         │              ┌─────────────────┐
+         │              │  ML Pipeline    │
+         └─────────────▶│  (TensorFlow/   │
+                        │   MediaPipe)    │
+                        └─────────────────┘
+```
+
+### Project Structure
+
+```
+communication-access/
+├── backend/
+│   ├── server.py           # FastAPI application
+│   └── requirements.txt    # Python dependencies
+├── frontend/
+│   ├── src/
+│   │   ├── App.js          # Main React app with routing
+│   │   ├── pages/          # Landing, Dashboard, Dictionary, History
+│   │   └── components/     # Reusable UI components
+│   └── package.json        # Node dependencies
+├── asl_handshapes.py       # ASL handshape definitions (MANO parameters)
+├── dataset_loader.py       # PyTorch dataset loader for ML training
+├── backend_test.py         # Backend API tests
+└── README.md               # This file
+```
+
+---
+
+## Tech Stack
+
+### Backend
+- **Python 3.10+**
+- **FastAPI** - High-performance async web framework
+- **MongoDB** + **Motor** - Async MongoDB driver
+- **Pydantic** - Data validation
+- **uvicorn** - ASGI server
+
+### Frontend
+- **React 19** - UI framework
+- **React Router** - Client-side routing
+- **Tailwind CSS** - Utility-first CSS
+- **Radix UI** - Accessible component primitives
+- **MediaPipe** - Hand tracking for ASL recognition
+- **TensorFlow.js** - ML inference in browser
+
+### ML Pipeline
+- **PyTorch** - Deep learning framework
+- **NumPy** - Numerical computing
+- **PIL/Pillow** - Image processing
+
+---
+
+## Prerequisites
+
+- **Node.js** >= 18.x
+- **Python** >= 3.10
+- **MongoDB** (local or MongoDB Atlas)
+- **Yarn** or **npm**
+- **Git**
+
+---
+
+## Local Development Setup
+
+### 1. Clone the Repository
 
 ```bash
-# Ubuntu/Debian
-sudo apt-get install blender
-
-# Or download from blender.org (recommended for latest version)
-wget https://download.blender.org/release/Blender3.6/blender-3.6.5-linux-x64.tar.xz
-tar -xf blender-3.6.5-linux-x64.tar.xz
-export BLENDER_PATH=/path/to/blender-3.6.5-linux-x64/blender
+git clone <repository-url>
+cd communication-access
 ```
 
-### 2. Generate Synthetic Data
+### 2. Backend Setup
 
 ```bash
-# Basic usage - generates all handshapes
-blender --background --python generate_synthetic_asl.py
+# Create virtual environment
+python3 -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
 
-# Custom output directory and sample count
-blender --background --python generate_synthetic_asl.py -- \
-    --output /path/to/output \
-    --samples 200
+# Install dependencies
+pip install -r backend/requirements.txt
 
-# Generate specific handshapes only
-blender --background --python generate_synthetic_asl.py -- \
-    --handshapes A,B,C,ILY,1,2,3 \
-    --samples 100
+# Create environment file
+cat > backend/.env << 'EOF'
+MONGO_URL=mongodb://localhost:27017
+DB_NAME=signsync_dev
+CORS_ORIGINS=http://localhost:3000
+EOF
 
-# Use GPU rendering (faster)
-blender --background --python generate_synthetic_asl.py -- \
-    --gpu \
-    --engine CYCLES
+# Start MongoDB (if local)
+# On macOS: brew services start mongodb-community
+# On Ubuntu: sudo systemctl start mongod
+
+# Run backend server
+cd backend
+uvicorn server:app --reload --host 0.0.0.0 --port 8000
 ```
 
-### 3. Load Data for Training
+### 3. Frontend Setup
 
-```python
-from dataset_loader import SyntheticASLDataset, create_dataloaders
+```bash
+# In a new terminal
+cd frontend
 
-# Simple usage
-train_loader, val_loader = create_dataloaders(
-    synthetic_dir="/path/to/synthetic_data",
-    real_dir="/path/to/real_signcut_data",  # optional
-    batch_size=32,
-    synthetic_ratio=0.5
-)
+# Install dependencies
+yarn install  # or npm install
 
-# Train your model
-for batch in train_loader:
-    images = batch['image']       # (B, 3, 224, 224)
-    labels = batch['label']       # (B,)
-    keypoints = batch.get('keypoints_2d')  # (B, 16, 3) if available
-    # ... training loop
+# Create environment file
+echo "REACT_APP_BACKEND_URL=http://localhost:8000" > .env
+
+# Start development server
+yarn start  # or npm start
+```
+
+### 4. Verify Setup
+
+- Frontend: http://localhost:3000
+- Backend API: http://localhost:8000/api
+- Health check: http://localhost:8000/api/health
+
+---
+
+## Testing
+
+### Backend Tests
+
+```bash
+# Activate virtual environment
+source venv/bin/activate
+
+# Install test dependencies (already in requirements.txt)
+pip install pytest pytest-asyncio httpx
+
+# Run all tests
+pytest backend_test.py -v
+
+# Run with coverage
+pip install pytest-cov
+pytest backend_test.py -v --cov=backend --cov-report=html
+
+# Run specific test
+pytest backend_test.py -v -k "test_health_check"
+```
+
+#### Quick API Test (curl)
+
+```bash
+# Health check
+curl http://localhost:8000/api/health
+
+# Get all signs (public endpoint)
+curl http://localhost:8000/api/signs
+
+# Search signs
+curl http://localhost:8000/api/signs/search/hello
+```
+
+### Frontend Tests
+
+```bash
+cd frontend
+
+# Run test suite
+yarn test
+
+# Run tests with coverage
+yarn test --coverage
+
+# Run tests in watch mode
+yarn test --watch
+```
+
+### End-to-End Testing
+
+```bash
+# Install Playwright (optional)
+npm install -g playwright
+npx playwright install
+
+# Run E2E tests
+npx playwright test
+```
+
+### Test the ML Pipeline
+
+```bash
+# Test ASL handshape definitions
+python asl_handshapes.py
+
+# Test dataset loader (requires synthetic data)
+python dataset_loader.py --synthetic-dir /path/to/synthetic_data --visualize
 ```
 
 ---
 
-## Configuration Options
+## EC2 Deployment Guide
 
-### Generation Script (`generate_synthetic_asl.py`)
+### Step 1: Launch EC2 Instance
 
-| Option | Default | Description |
-|--------|---------|-------------|
-| `--output` | `/tmp/synthetic_asl_data` | Output directory |
-| `--samples` | 100 | Samples per handshape |
-| `--handshapes` | All | Comma-separated list (e.g., `A,B,C`) |
-| `--format` | PNG | Export format: `PNG` or `BASE64` |
-| `--gpu` | False | Use GPU rendering |
-| `--engine` | CYCLES | Render engine: `CYCLES` or `EEVEE` |
-| `--seed` | None | Random seed for reproducibility |
+1. **Login to AWS Console** → EC2 → Launch Instance
 
-### Dataset Loader
+2. **Configure Instance:**
+   - **Name:** `signsync-production`
+   - **AMI:** Ubuntu Server 22.04 LTS (64-bit x86)
+   - **Instance type:** `t3.medium` (minimum) or `t3.large` (recommended)
+   - **Key pair:** Create or select existing key pair
+   - **Network settings:**
+     - Allow SSH (port 22) from your IP
+     - Allow HTTP (port 80) from anywhere
+     - Allow HTTPS (port 443) from anywhere
+     - Allow Custom TCP (port 8000) from anywhere (API)
+     - Allow Custom TCP (port 3000) from anywhere (Frontend dev)
 
-```python
-# Full customization
-dataset = SyntheticASLDataset(
-    data_dir="/path/to/data",
-    transform=custom_transforms,
-    include_keypoints=True,
-    target_handshapes=['A', 'B', 'C'],  # Filter
-    max_samples_per_class=500           # Limit
-)
+3. **Storage:** 20 GB gp3 (minimum)
+
+4. **Launch the instance**
+
+### Step 2: Connect to EC2
+
+```bash
+# Set permissions for key file
+chmod 400 your-key.pem
+
+# Connect via SSH
+ssh -i your-key.pem ubuntu@<EC2-PUBLIC-IP>
 ```
 
----
+### Step 3: Install System Dependencies
 
-## Curriculum Learning
+```bash
+# Update system
+sudo apt update && sudo apt upgrade -y
 
-The dataset supports curriculum learning with three phases:
+# Install Python
+sudo apt install -y python3.10 python3.10-venv python3-pip
 
-```python
-from dataset_loader import CombinedASLDataset
+# Install Node.js 18
+curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
+sudo apt install -y nodejs
 
-# Phase 1: Synthetic only (warm-up)
-combined = CombinedASLDataset(
-    synthetic_dataset, real_dataset,
-    curriculum_phase="synthetic_only"
-)
-# Train for N epochs...
+# Install Yarn
+sudo npm install -g yarn
 
-# Phase 2: Mixed training
-combined.set_curriculum_phase("mixed")
-# Train for M epochs...
+# Install Nginx (reverse proxy)
+sudo apt install -y nginx
 
-# Phase 3: Real-heavy fine-tuning
-combined.set_curriculum_phase("real_heavy")
-# Train for K epochs...
+# Install PM2 (process manager)
+sudo npm install -g pm2
+
+# Install Git
+sudo apt install -y git
 ```
 
----
+### Step 4: Install MongoDB
 
-## Output Structure
+```bash
+# Import MongoDB GPG key
+curl -fsSL https://pgp.mongodb.com/server-7.0.asc | \
+   sudo gpg -o /usr/share/keyrings/mongodb-server-7.0.gpg --dearmor
 
+# Add MongoDB repository
+echo "deb [ arch=amd64,arm64 signed-by=/usr/share/keyrings/mongodb-server-7.0.gpg ] https://repo.mongodb.org/apt/ubuntu jammy/mongodb-org/7.0 multiverse" | \
+   sudo tee /etc/apt/sources.list.d/mongodb-org-7.0.list
+
+# Install MongoDB
+sudo apt update
+sudo apt install -y mongodb-org
+
+# Start and enable MongoDB
+sudo systemctl start mongod
+sudo systemctl enable mongod
+
+# Verify MongoDB is running
+sudo systemctl status mongod
 ```
-output_directory/
-├── metadata.json      # All sample metadata
-├── label_map.json     # Handshape -> integer mapping
-├── A/
-│   ├── A_0000.png
-│   ├── A_0001.png
-│   └── ...
-├── B/
-│   └── ...
-└── ...
+
+### Step 5: Clone and Setup Application
+
+```bash
+# Clone repository
+cd /home/ubuntu
+git clone <repository-url> signsync
+cd signsync
+
+# Backend setup
+python3 -m venv venv
+source venv/bin/activate
+pip install -r backend/requirements.txt
+
+# Create backend environment file
+cat > backend/.env << 'EOF'
+MONGO_URL=mongodb://localhost:27017
+DB_NAME=signsync_production
+CORS_ORIGINS=http://<EC2-PUBLIC-IP>,https://yourdomain.com
+EOF
+
+# Frontend setup
+cd frontend
+yarn install
+
+# Build frontend for production
+echo "REACT_APP_BACKEND_URL=http://<EC2-PUBLIC-IP>:8000" > .env
+yarn build
 ```
 
-### Metadata Format
+### Step 6: Configure PM2 Process Manager
 
-```json
-{
-  "samples": [
+```bash
+cd /home/ubuntu/signsync
+
+# Create PM2 ecosystem file
+cat > ecosystem.config.js << 'EOF'
+module.exports = {
+  apps: [
     {
-      "id": 0,
-      "handshape": "A",
-      "skin_tone_idx": 2,
-      "seed": 0,
-      "filepath": "A/A_0000.png",
-      "keypoints_2d": [[x, y, visibility], ...],
-      "keypoints_3d": [[x, y, z], ...]
+      name: 'signsync-backend',
+      cwd: '/home/ubuntu/signsync/backend',
+      script: '/home/ubuntu/signsync/venv/bin/uvicorn',
+      args: 'server:app --host 0.0.0.0 --port 8000',
+      interpreter: 'none',
+      env: {
+        NODE_ENV: 'production',
+      },
+    },
+    {
+      name: 'signsync-frontend',
+      cwd: '/home/ubuntu/signsync/frontend',
+      script: 'npx',
+      args: 'serve -s build -l 3000',
+      interpreter: 'none',
+      env: {
+        NODE_ENV: 'production',
+      },
     }
   ]
+};
+EOF
+
+# Install serve for frontend
+cd frontend && npm install -g serve
+
+# Start applications with PM2
+cd /home/ubuntu/signsync
+pm2 start ecosystem.config.js
+
+# Save PM2 configuration
+pm2 save
+
+# Setup PM2 to start on boot
+pm2 startup systemd -u ubuntu --hp /home/ubuntu
+# Run the command it outputs
+```
+
+### Step 7: Configure Nginx Reverse Proxy
+
+```bash
+# Create Nginx configuration
+sudo tee /etc/nginx/sites-available/signsync << 'EOF'
+server {
+    listen 80;
+    server_name _;  # Replace with your domain
+
+    # Frontend
+    location / {
+        proxy_pass http://localhost:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_cache_bypass $http_upgrade;
+    }
+
+    # Backend API
+    location /api {
+        proxy_pass http://localhost:8000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_cache_bypass $http_upgrade;
+    }
 }
+EOF
+
+# Enable site
+sudo ln -s /etc/nginx/sites-available/signsync /etc/nginx/sites-enabled/
+sudo rm /etc/nginx/sites-enabled/default
+
+# Test and restart Nginx
+sudo nginx -t
+sudo systemctl restart nginx
+sudo systemctl enable nginx
+```
+
+### Step 8: Setup SSL (Optional but Recommended)
+
+```bash
+# Install Certbot
+sudo apt install -y certbot python3-certbot-nginx
+
+# Get SSL certificate (replace with your domain)
+sudo certbot --nginx -d yourdomain.com -d www.yourdomain.com
+
+# Auto-renewal is configured automatically
+sudo certbot renew --dry-run
+```
+
+### Step 9: Verify Deployment
+
+```bash
+# Check PM2 status
+pm2 status
+
+# Check Nginx status
+sudo systemctl status nginx
+
+# Check MongoDB status
+sudo systemctl status mongod
+
+# Test endpoints
+curl http://localhost:8000/api/health
+curl http://localhost/api/health
+
+# View logs
+pm2 logs signsync-backend
+pm2 logs signsync-frontend
+```
+
+### Step 10: Useful Commands
+
+```bash
+# Restart services
+pm2 restart all
+
+# View real-time logs
+pm2 logs
+
+# Monitor resources
+pm2 monit
+
+# Update application
+cd /home/ubuntu/signsync
+git pull
+source venv/bin/activate
+pip install -r backend/requirements.txt
+cd frontend && yarn install && yarn build
+pm2 restart all
 ```
 
 ---
 
-## Handshapes Included
+## API Documentation
 
-### Alphabet (26)
-A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X, Y, Z
+### Authentication Endpoints
 
-### Numbers (10)
-0, 1, 2, 3, 4, 5, 6, 7, 8, 9
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/auth/session` | Exchange session_id for session_token |
+| GET | `/api/auth/me` | Get current authenticated user |
+| POST | `/api/auth/logout` | Logout and clear session |
 
-### Common Signs (10)
-- ILY (I Love You)
-- FLAT_O
-- CLAW
-- BENT_V
-- OPEN_8
-- BABY_O
-- CL_1 (Classifier 1 - person/thin object)
-- CL_3 (Classifier 3 - vehicle)
-- CL_5 (Classifier 5 - large surface)
-- CL_C (Classifier C - cylindrical)
+### Sign Dictionary Endpoints
 
----
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/signs` | Get all signs |
+| GET | `/api/signs/{sign_id}` | Get specific sign |
+| POST | `/api/signs` | Create new sign (auth required) |
+| PUT | `/api/signs/{sign_id}` | Update sign (auth required) |
+| DELETE | `/api/signs/{sign_id}` | Delete sign (auth required) |
+| GET | `/api/signs/search/{word}` | Search signs by word |
 
-## Upgrading to MANO Hand Model
+### Translation History Endpoints
 
-For photorealistic hands, replace the simple mesh with MANO:
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/history` | Get user's translation history |
+| POST | `/api/history` | Save translation to history |
+| DELETE | `/api/history/{history_id}` | Delete history entry |
+| DELETE | `/api/history` | Clear all history |
 
-1. **Register** at https://mano.is.tue.mpg.de/
-2. **Download** `MANO_RIGHT.pkl` and `MANO_LEFT.pkl`
-3. **Install** the MANO Blender add-on
-4. **Modify** `generate_synthetic_asl.py`:
+### Utility Endpoints
 
-```python
-def load_mano_model(mano_path, hand_type='right'):
-    import pickle
-    with open(mano_path, 'rb') as f:
-        mano_data = pickle.load(f, encoding='latin1')
-    # ... MANO mesh creation code
-```
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/` | API info |
+| GET | `/api/health` | Health check |
 
 ---
 
-## Integration with Your 3D CNN + LSTM
+## ML Pipeline
 
-Your model expects sequences of frames. To generate video sequences:
+The project includes files for training ASL recognition models:
 
-```python
-# Modify CONFIG in generate_synthetic_asl.py
-CONFIG.frames_per_sample = 16  # For sequence models
-CONFIG.frame_interval_ms = 33  # ~30 fps
+### ASL Handshape Definitions (`asl_handshapes.py`)
 
-# The generator will output:
-# output_dir/A/A_0000_frame00.png
-# output_dir/A/A_0000_frame01.png
-# ...
-```
+- 26 alphabet handshapes (A-Z)
+- 10 number handshapes (0-9)
+- 10 common signs (ILY, classifiers, etc.)
+- MANO pose parameter format
 
-Or load as sequences in the dataset loader:
+### Dataset Loader (`dataset_loader.py`)
 
-```python
-class SequenceASLDataset(Dataset):
-    def __getitem__(self, idx):
-        # Load N consecutive frames
-        frames = [self.load_frame(idx, f) for f in range(self.seq_len)]
-        return torch.stack(frames), label
-```
+- PyTorch Dataset implementation
+- Supports synthetic and real data
+- Curriculum learning phases
+- Data augmentation transforms
+
+See [ML Pipeline Documentation](./docs/ml-pipeline.md) for detailed usage.
 
 ---
 
-## Expected Results
+## Environment Variables
 
-Based on research:
-- **+5% accuracy** improvement with synthetic augmentation
-- **Better generalization** to unseen signers
-- **Improved handling** of occlusions and lighting variations
+### Backend (`backend/.env`)
+
+```env
+MONGO_URL=mongodb://localhost:27017
+DB_NAME=signsync_dev
+CORS_ORIGINS=http://localhost:3000
+```
+
+### Frontend (`frontend/.env`)
+
+```env
+REACT_APP_BACKEND_URL=http://localhost:8000
+```
 
 ---
 
 ## Troubleshooting
 
-### Blender not found
+### MongoDB Connection Issues
+
 ```bash
-export PATH=$PATH:/path/to/blender
+# Check if MongoDB is running
+sudo systemctl status mongod
+
+# View MongoDB logs
+sudo tail -f /var/log/mongodb/mongod.log
+
+# Restart MongoDB
+sudo systemctl restart mongod
 ```
 
-### GPU rendering fails
+### Port Already in Use
+
 ```bash
-# Fall back to CPU
-blender --background --python generate_synthetic_asl.py -- --engine EEVEE
+# Find process using port
+sudo lsof -i :8000
+sudo lsof -i :3000
+
+# Kill process
+kill -9 <PID>
 ```
 
-### Import errors in Blender
+### PM2 Issues
+
 ```bash
-# Install packages to Blender's Python
-/path/to/blender/3.6/python/bin/python3.10 -m pip install numpy
+# View detailed logs
+pm2 logs --lines 100
+
+# Restart with fresh state
+pm2 delete all
+pm2 start ecosystem.config.js
 ```
 
----
+### Frontend Build Errors
 
-## Next Steps with Claude Code
-
-1. Copy this folder to your SLR project
-2. Open Claude Code in your project directory
-3. Say: "Help me integrate this Blender synthetic data pipeline with my existing 3D CNN + LSTM model"
-4. Claude Code will adapt the loader to your exact input format
+```bash
+# Clear cache and reinstall
+rm -rf node_modules
+rm -rf .cache
+yarn install
+yarn build
+```
 
 ---
 
 ## Contact
 
-**Dawnena Key**  
-SonZo AI - Founder/Chief AI Officer  
+**Dawnena Key**
+SonZo AI - Founder/Chief AI Officer
 dawnena@sonzo.io
