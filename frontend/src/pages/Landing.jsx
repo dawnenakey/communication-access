@@ -5,10 +5,11 @@ import { Hand, Video, BookOpen, History, Volume2, ArrowRight, Zap, Users, Shield
 export default function Landing() {
   const navigate = useNavigate();
 
-  // REMINDER: DO NOT HARDCODE THE URL, OR ADD ANY FALLBACKS OR REDIRECT URLS, THIS BREAKS THE AUTH
+  // Navigate to dashboard (implement your own auth provider here)
   const handleLogin = () => {
-    const redirectUrl = window.location.origin + "/dashboard";
-    window.location.href = `https://auth.emergentagent.com/?redirect=${encodeURIComponent(redirectUrl)}`;
+    // TODO: Replace with your preferred OAuth provider (Google, Auth0, Firebase, etc.)
+    // For now, navigate to dashboard for demo purposes
+    navigate("/dashboard");
   };
 
   const features = [
