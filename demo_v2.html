@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SonZo Avatar Demo - Sign Language Animation</title>
+    <link rel="icon" href="/favicon.ico" type="image/x-icon">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Playfair+Display:wght@700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --red: #EF3340;
+            --yellow: #FFD700;
+            --black: #1a1a1a;
+            --white: #FFFFFF;
+            --cream: #faf9f7;
+            --gray: #6b7280;
+            --gray-light: #e5e7eb;
+        }
+        
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        
+        body {
+            font-family: 'Inter', -apple-system, sans-serif;
+            background: var(--cream);
+            color: var(--black);
+            line-height: 1.7;
+        }
+        
+        .container { max-width: 900px; margin: 0 auto; padding: 40px 24px; }
+        
+        nav {
+            padding: 24px 0;
+            background: var(--cream);
+            border-bottom: 1px solid var(--gray-light);
+        }
+        
+        .nav-inner {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 0 24px;
+        }
+        
+        .logo {
+            font-family: 'Playfair Display', serif;
+            font-size: 1.5rem;
+            color: var(--black);
+            text-decoration: none;
+        }
+        
+        .logo span { color: var(--red); }
+        
+        .back-link {
+            color: var(--gray);
+            text-decoration: none;
+            font-size: 0.9rem;
+        }
+        
+        .back-link:hover { color: var(--black); }
+        
+        .hero {
+            padding: 60px 0 40px;
+            text-align: center;
+        }
+        
+        .badge {
+            display: inline-block;
+            background: var(--white);
+            border: 1px solid var(--gray-light);
+            color: var(--gray);
+            padding: 6px 16px;
+            border-radius: 100px;
+            font-size: 0.8rem;
+            font-weight: 500;
+            margin-bottom: 24px;
+        }
+        
+        h1 {
+            font-family: 'Playfair Display', serif;
+            font-size: 2.5rem;
+            margin-bottom: 16px;
+        }
+        
+        h1 span { color: var(--red); }
+        
+        .subtitle {
+            color: var(--gray);
+            font-size: 1.1rem;
+            max-width: 550px;
+            margin: 0 auto;
+        }
+        
+        .video-section {
+            background: var(--white);
+            border-radius: 12px;
+            padding: 32px;
+            margin: 40px 0;
+            border: 1px solid var(--gray-light);
+        }
+        
+        .video-section h2 {
+            font-family: 'Playfair Display', serif;
+            font-size: 1.5rem;
+            margin-bottom: 24px;
+        }
+        
+        .video-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+        }
+        
+        .video-card {
+            background: var(--cream);
+            border-radius: 8px;
+            overflow: hidden;
+            border: 1px solid var(--gray-light);
+        }
+        
+        .video-card video {
+            width: 100%;
+            display: block;
+            background: var(--black);
+        }
+        
+        .video-card-info {
+            padding: 16px;
+        }
+        
+        .video-card h3 {
+            font-size: 0.95rem;
+            font-weight: 600;
+            margin-bottom: 4px;
+        }
+        
+        .video-card p {
+            color: var(--gray);
+            font-size: 0.85rem;
+        }
+        
+        .features {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 24px;
+            margin: 48px 0;
+        }
+        
+        .feature {
+            text-align: center;
+            padding: 24px 16px;
+            background: var(--white);
+            border-radius: 8px;
+            border: 1px solid var(--gray-light);
+        }
+        
+        .feature h3 {
+            font-size: 0.95rem;
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+        
+        .feature p {
+            color: var(--gray);
+            font-size: 0.85rem;
+        }
+        
+        .cta {
+            text-align: center;
+            padding: 48px 32px;
+            background: var(--black);
+            border-radius: 12px;
+            color: var(--white);
+            margin: 48px 0;
+        }
+        
+        .cta h2 {
+            font-family: 'Playfair Display', serif;
+            font-size: 1.8rem;
+            margin-bottom: 12px;
+        }
+        
+        .cta p {
+            color: rgba(255,255,255,0.7);
+            margin-bottom: 24px;
+        }
+        
+        .btn {
+            display: inline-block;
+            padding: 14px 32px;
+            background: var(--red);
+            color: var(--white);
+            border-radius: 8px;
+            font-weight: 600;
+            text-decoration: none;
+            transition: all 0.2s;
+        }
+        
+        .btn:hover { 
+            background: #d42d38;
+            transform: translateY(-2px); 
+        }
+        
+        .tech-note {
+            padding: 24px;
+            background: var(--white);
+            border-radius: 8px;
+            border-left: 3px solid var(--red);
+            margin: 32px 0;
+        }
+        
+        .tech-note h3 {
+            font-size: 0.95rem;
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+        
+        .tech-note p {
+            color: var(--gray);
+            font-size: 0.9rem;
+        }
+        
+        footer {
+            text-align: center;
+            padding: 40px 0;
+            color: var(--gray);
+            font-size: 0.85rem;
+            border-top: 1px solid var(--gray-light);
+            margin-top: 40px;
+        }
+        
+        footer a { color: var(--red); text-decoration: none; }
+        footer a:hover { text-decoration: underline; }
+        
+        .four-directions {
+            display: flex;
+            gap: 6px;
+            justify-content: center;
+            margin-top: 16px;
+        }
+        
+        .four-directions span {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+        }
+        
+        .d-red { background: var(--red); }
+        .d-yellow { background: var(--yellow); }
+        .d-white { background: var(--white); border: 1px solid var(--gray-light); }
+        .d-black { background: var(--black); }
+        
+        @media (max-width: 768px) {
+            .features { grid-template-columns: 1fr; }
+            h1 { font-size: 2rem; }
+        }
+    </style>
+</head>
+<body>
+    <nav>
+        <div class="nav-inner">
+            <a href="/" class="logo">Son<span>Zo</span> AI</a>
+            <a href="/" class="back-link">← Back to Home</a>
+        </div>
+    </nav>
+    
+    <div class="container">
+        <div class="hero">
+            <span class="badge">Demo Preview</span>
+            <h1>SonZo <span>Avatar</span></h1>
+            <p class="subtitle">Text-to-sign animation. Convert English text into animated ASL videos using AI-generated signing avatars.</p>
+        </div>
+        
+        <div class="video-section">
+            <h2>Sample Animations</h2>
+            <div class="video-grid">
+                <div class="video-card">
+                    <video controls autoplay loop muted playsinline>
+                        <source src="/demo/hello.mp4" type="video/mp4">
+                    </video>
+                    <div class="video-card-info">
+                        <h3>HELLO</h3>
+                        <p>Greeting sign</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="features">
+            <div class="feature">
+                <h3>Full Upper Body</h3>
+                <p>Arms, hands, and expressions for natural signing</p>
+            </div>
+            <div class="feature">
+                <h3>Fast Generation</h3>
+                <p>Create sign videos in under a minute</p>
+            </div>
+            <div class="feature">
+                <h3>API Access</h3>
+                <p>Integrate into your app or website</p>
+            </div>
+        </div>
+        
+        <div class="tech-note">
+            <h3>How it works</h3>
+            <p>SonZo Avatar uses Blender and SMPL-X body models to generate anatomically accurate signing animations. Combined with our patent-pending Sign Language Recognition API, we're building a complete ASL communication platform.</p>
+        </div>
+        
+        <div class="cta">
+            <h2>Interested in early access?</h2>
+            <p>SonZo Avatar is in development. Let's talk about your use case.</p>
+            <a href="https://calendly.com/sonzoai" class="btn">Schedule a Call</a>
+        </div>
+        
+        <footer>
+            <p>Patent Pending 63/918,518 · <a href="mailto:dawnena@sonzo.io">dawnena@sonzo.io</a></p>
+            <div class="four-directions">
+                <span class="d-red"></span>
+                <span class="d-yellow"></span>
+                <span class="d-white"></span>
+                <span class="d-black"></span>
+            </div>
+            <p style="margin-top: 16px;">© 2025 SonZo AI · Indigenous & Deaf-owned</p>
+        </footer>
+    </div>
+</body>
+</html>
