@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SonZo Avatar Demo - Sign Language Animation</title>
+    <link rel="icon" href="/favicon.ico" type="image/x-icon">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Playfair+Display:wght@700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --red: #EF3340;
+            --yellow: #FFD700;
+            --black: #1a1a1a;
+            --white: #FFFFFF;
+            --cream: #faf9f7;
+            --gray: #6b7280;
+        }
+        
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        
+        body {
+            font-family: 'Inter', -apple-system, sans-serif;
+            background: var(--black);
+            color: var(--white);
+            min-height: 100vh;
+        }
+        
+        .container { max-width: 900px; margin: 0 auto; padding: 40px 24px; }
+        
+        nav {
+            padding: 20px 0;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+            margin-bottom: 40px;
+        }
+        
+        .nav-inner {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .logo {
+            font-family: 'Playfair Display', serif;
+            font-size: 1.5rem;
+            color: var(--white);
+            text-decoration: none;
+        }
+        
+        .logo span { color: var(--red); }
+        
+        .back-link {
+            color: var(--gray);
+            text-decoration: none;
+            font-size: 0.9rem;
+        }
+        
+        .back-link:hover { color: var(--white); }
+        
+        .hero {
+            text-align: center;
+            margin-bottom: 48px;
+        }
+        
+        .badge {
+            display: inline-block;
+            background: var(--red);
+            color: var(--white);
+            padding: 6px 16px;
+            border-radius: 100px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            margin-bottom: 24px;
+        }
+        
+        h1 {
+            font-family: 'Playfair Display', serif;
+            font-size: 2.5rem;
+            margin-bottom: 16px;
+        }
+        
+        h1 span { color: var(--yellow); }
+        
+        .subtitle {
+            color: var(--gray);
+            font-size: 1.1rem;
+            max-width: 600px;
+            margin: 0 auto;
+        }
+        
+        .video-section {
+            background: rgba(255,255,255,0.05);
+            border-radius: 16px;
+            padding: 32px;
+            margin-bottom: 48px;
+        }
+        
+        .video-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 24px;
+        }
+        
+        .video-card {
+            background: rgba(0,0,0,0.3);
+            border-radius: 12px;
+            overflow: hidden;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+        
+        .video-card video {
+            width: 100%;
+            display: block;
+        }
+        
+        .video-card-info {
+            padding: 16px;
+        }
+        
+        .video-card h3 {
+            font-size: 1rem;
+            margin-bottom: 4px;
+        }
+        
+        .video-card p {
+            color: var(--gray);
+            font-size: 0.85rem;
+        }
+        
+        .features {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 24px;
+            margin-bottom: 48px;
+        }
+        
+        .feature {
+            text-align: center;
+            padding: 24px;
+        }
+        
+        .feature-icon {
+            font-size: 2rem;
+            margin-bottom: 12px;
+        }
+        
+        .feature h3 {
+            font-size: 1rem;
+            margin-bottom: 8px;
+            font-family: 'Inter', sans-serif;
+        }
+        
+        .feature p {
+            color: var(--gray);
+            font-size: 0.9rem;
+        }
+        
+        .cta {
+            text-align: center;
+            padding: 48px;
+            background: linear-gradient(135deg, var(--red) 0%, #c41e3a 100%);
+            border-radius: 16px;
+        }
+        
+        .cta h2 {
+            font-family: 'Playfair Display', serif;
+            font-size: 2rem;
+            margin-bottom: 16px;
+        }
+        
+        .cta p {
+            margin-bottom: 24px;
+            opacity: 0.9;
+        }
+        
+        .btn {
+            display: inline-block;
+            padding: 14px 32px;
+            background: var(--white);
+            color: var(--black);
+            border-radius: 8px;
+            font-weight: 600;
+            text-decoration: none;
+            transition: transform 0.2s;
+        }
+        
+        .btn:hover { transform: translateY(-2px); }
+        
+        .tech-note {
+            margin-top: 48px;
+            padding: 24px;
+            background: rgba(255,255,255,0.05);
+            border-radius: 12px;
+            border-left: 3px solid var(--yellow);
+        }
+        
+        .tech-note h3 {
+            color: var(--yellow);
+            font-size: 1rem;
+            margin-bottom: 12px;
+            font-family: 'Inter', sans-serif;
+        }
+        
+        .tech-note p {
+            color: var(--gray);
+            font-size: 0.9rem;
+            line-height: 1.7;
+        }
+        
+        footer {
+            text-align: center;
+            padding: 40px 0;
+            color: var(--gray);
+            font-size: 0.85rem;
+        }
+        
+        footer a { color: var(--yellow); }
+        
+        @media (max-width: 768px) {
+            .features { grid-template-columns: 1fr; }
+            h1 { font-size: 2rem; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <nav>
+            <div class="nav-inner">
+                <a href="/" class="logo">Son<span>Zo</span> AI</a>
+                <a href="/" class="back-link">← Back to Home</a>
+            </div>
+        </nav>
+        
+        <div class="hero">
+            <span class="badge">🤟 DEMO</span>
+            <h1>SonZo <span>Avatar</span></h1>
+            <p class="subtitle">AI-generated signing avatars that bring ASL to life. Convert text to animated sign language videos in seconds.</p>
+        </div>
+        
+        <div class="video-section">
+            <div class="video-grid">
+                <div class="video-card">
+                    <video controls autoplay loop muted playsinline>
+                        <source src="/demo/hello.mp4" type="video/mp4">
+                        Your browser does not support video.
+                    </video>
+                    <div class="video-card-info">
+                        <h3>HELLO</h3>
+                        <p>Basic greeting sign</p>
+                    </div>
+                </div>
+                <!-- More videos will be added here -->
+            </div>
+        </div>
+        
+        <div class="features">
+            <div class="feature">
+                <div class="feature-icon">🎬</div>
+                <h3>Full Upper Body</h3>
+                <p>Complete signing with arms, hands, and facial expressions</p>
+            </div>
+            <div class="feature">
+                <div class="feature-icon">⚡</div>
+                <h3>Fast Generation</h3>
+                <p>Generate avatar videos in under a minute</p>
+            </div>
+            <div class="feature">
+                <div class="feature-icon">🔌</div>
+                <h3>API Ready</h3>
+                <p>Integrate into your app with our REST API</p>
+            </div>
+        </div>
+        
+        <div class="cta">
+            <h2>Want this for your app?</h2>
+            <p>SonZo Avatar is coming soon. Get early access.</p>
+            <a href="https://calendly.com/sonzoai" class="btn">Schedule a Call</a>
+        </div>
+        
+        <div class="tech-note">
+            <h3>🔬 How it works</h3>
+            <p>
+                SonZo Avatar uses Blender and SMPL-X body models to generate anatomically accurate signing animations. 
+                Each sign is animated with proper hand shapes, arm movements, and non-manual markers. 
+                Combined with our patent-pending Sign Language Recognition API, we're building a complete 
+                ASL communication platform.
+            </p>
+        </div>
+        
+        <footer>
+            <p>Patent Pending 63/918,518 · <a href="mailto:dawnena@sonzo.io">dawnena@sonzo.io</a></p>
+            <p style="margin-top: 8px;">© 2025 SonZo AI · Indigenous & Deaf-owned</p>
+        </footer>
+    </div>
+</body>
+</html>
