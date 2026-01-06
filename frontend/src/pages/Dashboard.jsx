@@ -43,12 +43,19 @@ export default function Dashboard() {
   // Dictionary
   const [dictionary, setDictionary] = useState([]);
   
+  // SLR Recognition states
+  const [slrStatus, setSlrStatus] = useState("idle"); // idle, capturing, processing
+  const [frameBuffer, setFrameBuffer] = useState([]);
+  const FRAME_BUFFER_SIZE = 16; // Number of frames to capture
+  const CAPTURE_INTERVAL_MS = 100; // Capture frame every 100ms
+
   // Refs
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
   const streamRef = useRef(null);
   const uploadVideoRef = useRef(null);
   const fileInputRef = useRef(null);
+  const recognitionIntervalRef = useRef(null);
 
   // Load dictionary on mount
   useEffect(() => {
@@ -97,38 +104,114 @@ export default function Dashboard() {
     toast.info("Camera stopped");
   };
 
-  // Simulated recognition (in real app, this would use MediaPipe)
-  const toggleRecognition = () => {
+  // Capture a single frame from video as base64
+  const captureFrame = useCallback(() => {
+    if (!videoRef.current || !canvasRef.current) return null;
+
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext('2d');
+
+    // Set canvas size to video size
+    canvas.width = video.videoWidth || 640;
+    canvas.height = video.videoHeight || 480;
+
+    // Draw video frame to canvas
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+    // Get base64 encoded image (without data URL prefix)
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
+    return dataUrl.split(',')[1]; // Remove "data:image/jpeg;base64," prefix
+  }, []);
+
+  // Send frames to SLR API for recognition
+  const recognizeFrames = useCallback(async (frames) => {
+    if (frames.length === 0) return;
+
+    setSlrStatus("processing");
+
+    try {
+      const response = await axios.post(`${API}/slr/recognize`, {
+        frames: frames,
+        return_alternatives: true,
+        confidence_threshold: 0.5
+      });
+
+      const result = response.data;
+
+      if (result.sign && result.sign !== "UNKNOWN") {
+        setRecognizedText(prev => {
+          const newText = prev ? `${prev} ${result.sign}` : result.sign;
+          return newText;
+        });
+        setConfidence(result.confidence * 100);
+        toast.success(`Recognized: ${result.sign} (${(result.confidence * 100).toFixed(1)}%)`);
+      }
+
+      setSlrStatus("idle");
+    } catch (error) {
+      console.error("SLR recognition error:", error);
+      if (error.response?.status === 503) {
+        toast.error("SLR service not configured. Check API key.");
+      } else if (error.response?.status === 429) {
+        toast.error("Rate limit exceeded. Please wait.");
+      } else {
+        toast.error("Recognition failed. Please try again.");
+      }
+      setSlrStatus("idle");
+    }
+  }, []);
+
+  // Toggle real-time recognition using SonZo SLR API
+  const toggleRecognition = useCallback(() => {
     if (!isCameraOn) {
       toast.error("Please start the camera first");
       return;
     }
-    
+
     if (isRecognizing) {
-      setIsRecognizing(false);
-      toast.info("Recognition paused");
-    } else {
-      setIsRecognizing(true);
-      toast.success("Recognition started - Sign in front of camera");
-      
-      // Simulate recognition with dictionary entries
-      if (dictionary.length > 0) {
-        const interval = setInterval(() => {
-          if (!isRecognizing) {
-            clearInterval(interval);
-            return;
-          }
-          const randomSign = dictionary[Math.floor(Math.random() * dictionary.length)];
-          if (randomSign) {
-            setRecognizedText(prev => prev ? `${prev} ${randomSign.word}` : randomSign.word);
-            setConfidence(Math.random() * 30 + 70);
-          }
-        }, 2000);
-        
-        return () => clearInterval(interval);
+      // Stop recognition
+      if (recognitionIntervalRef.current) {
+        clearInterval(recognitionIntervalRef.current);
+        recognitionIntervalRef.current = null;
       }
+      setIsRecognizing(false);
+      setSlrStatus("idle");
+      setFrameBuffer([]);
+      toast.info("Recognition stopped");
+    } else {
+      // Start recognition
+      setIsRecognizing(true);
+      setSlrStatus("capturing");
+      toast.success("Recognition started - Sign in front of camera");
+
+      let frames = [];
+
+      // Capture frames at regular intervals
+      recognitionIntervalRef.current = setInterval(() => {
+        const frame = captureFrame();
+        if (frame) {
+          frames.push(frame);
+
+          // When we have enough frames, send for recognition
+          if (frames.length >= FRAME_BUFFER_SIZE) {
+            const framesToSend = [...frames];
+            frames = []; // Reset buffer
+            recognizeFrames(framesToSend);
+          }
+        }
+      }, CAPTURE_INTERVAL_MS);
     }
-  };
+  }, [isCameraOn, isRecognizing, captureFrame, recognizeFrames]);
+
+  // Cleanup recognition interval on unmount
+  useEffect(() => {
+    return () => {
+      if (recognitionIntervalRef.current) {
+        clearInterval(recognitionIntervalRef.current);
+      }
+    };
+  }, []);
 
   // Video upload
   const handleVideoUpload = (event) => {
@@ -392,8 +475,19 @@ export default function Dashboard() {
                     {/* Recognition status overlay */}
                     {isCameraOn && isRecognizing && (
                       <div className="absolute top-4 left-4 glass px-4 py-2 rounded-full flex items-center gap-2">
-                        <div className="w-3 h-3 rounded-full bg-red-500 pulse-ring" />
-                        <span className="text-sm font-medium">Recognizing...</span>
+                        <div className={`w-3 h-3 rounded-full ${slrStatus === "processing" ? "bg-amber-500" : "bg-red-500"} pulse-ring`} />
+                        <span className="text-sm font-medium">
+                          {slrStatus === "processing" ? "Processing..." : "Capturing..."}
+                        </span>
+                      </div>
+                    )}
+
+                    {/* SLR API Status */}
+                    {isCameraOn && (
+                      <div className="absolute bottom-4 left-4 glass px-3 py-1 rounded-full">
+                        <span className="text-xs text-muted-foreground">
+                          Powered by SonZo SLR API
+                        </span>
                       </div>
                     )}
                   </div>

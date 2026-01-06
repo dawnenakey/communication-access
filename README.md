@@ -28,13 +28,14 @@ A full-stack application for American Sign Language (ASL) translation and learni
 │   React Frontend│────▶│  FastAPI Backend│────▶│    MongoDB      │
 │   (Port 3000)   │     │   (Port 8000)   │     │   Database      │
 └─────────────────┘     └─────────────────┘     └─────────────────┘
-         │                       │
-         │                       ▼
-         │              ┌─────────────────┐
-         │              │  ML Pipeline    │
-         └─────────────▶│  (TensorFlow/   │
-                        │   MediaPipe)    │
-                        └─────────────────┘
+                                │
+                                ▼
+                       ┌─────────────────┐
+                       │  SonZo SLR API  │
+                       │  (api.sonzo.io) │
+                       │  Sign Language  │
+                       │   Recognition   │
+                       └─────────────────┘
 ```
 
 ### Project Structure
@@ -516,12 +517,89 @@ pm2 restart all
 | DELETE | `/api/history/{history_id}` | Delete history entry |
 | DELETE | `/api/history` | Clear all history |
 
+### SLR (Sign Language Recognition) Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/slr/recognize` | Recognize ASL signs from video frames |
+| GET | `/api/slr/signs` | Get list of supported signs |
+| GET | `/api/slr/usage` | Get API usage statistics |
+| GET | `/api/slr/health` | Check SLR service health |
+
 ### Utility Endpoints
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/api/` | API info |
 | GET | `/api/health` | Health check |
+
+---
+
+## SonZo SLR Integration
+
+This application integrates with the **SonZo SLR API** (api.sonzo.io) for real-time American Sign Language recognition.
+
+### How It Works
+
+1. **Frontend** captures webcam frames every 100ms
+2. When 16 frames are collected, they are sent to the backend
+3. **Backend** proxies the request to `api.sonzo.io/api/slr/recognize`
+4. SonZo's ML model (3D CNN + LSTM) processes the frames
+5. Recognition result is returned and displayed to the user
+6. High-confidence results are automatically saved to translation history
+
+### Configuration
+
+Add these environment variables to `backend/.env`:
+
+```env
+# SonZo SLR API Configuration
+SONZO_SLR_API_URL=https://api.sonzo.io
+SONZO_SLR_API_KEY=your_api_key_here
+```
+
+### Getting an API Key
+
+1. Visit [sonzo.io](https://sonzo.io) to create an account
+2. Navigate to API Settings
+3. Generate a new API key
+4. Add it to your `.env` file
+
+### Supported Signs
+
+The SonZo SLR API currently supports 35+ common ASL signs including:
+- Greetings: HELLO, THANK_YOU, PLEASE, SORRY
+- Common words: YES, NO, HELP, LOVE, FRIEND, FAMILY
+- Pronouns: YOU, ME, THEY, WE, HE, SHE
+- Questions: WHAT, WHERE, WHEN, WHY, HOW
+
+### API Request Example
+
+```bash
+curl -X POST https://your-api.com/api/slr/recognize \
+  -H "Authorization: Bearer your_session_token" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "frames": ["base64_frame_1", "base64_frame_2", "..."],
+    "return_alternatives": true,
+    "confidence_threshold": 0.5
+  }'
+```
+
+### API Response Example
+
+```json
+{
+  "sign": "HELLO",
+  "confidence": 0.92,
+  "alternatives": [
+    {"sign": "HI", "confidence": 0.45},
+    {"sign": "WAVE", "confidence": 0.32}
+  ],
+  "processing_time_ms": 142.5,
+  "request_id": "uuid-here"
+}
+```
 
 ---
 
@@ -555,6 +633,10 @@ See [ML Pipeline Documentation](./docs/ml-pipeline.md) for detailed usage.
 MONGO_URL=mongodb://localhost:27017
 DB_NAME=signsync_dev
 CORS_ORIGINS=http://localhost:3000
+
+# SonZo SLR API Integration
+SONZO_SLR_API_URL=https://api.sonzo.io
+SONZO_SLR_API_KEY=your_api_key_here
 ```
 
 ### Frontend (`frontend/.env`)

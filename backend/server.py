@@ -11,9 +11,14 @@ from typing import List, Optional
 import uuid
 from datetime import datetime, timezone, timedelta
 import base64
+import httpx
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
+
+# SonZo SLR API Configuration
+SONZO_SLR_API_URL = os.environ.get('SONZO_SLR_API_URL', 'https://api.sonzo.io')
+SONZO_SLR_API_KEY = os.environ.get('SONZO_SLR_API_KEY', '')
 
 # MongoDB connection
 mongo_url = os.environ['MONGO_URL']
@@ -80,6 +85,20 @@ class TranslationHistoryCreate(BaseModel):
     input_content: str
     output_content: str
     confidence: Optional[float] = None
+
+# ============== SLR MODELS ==============
+
+class SLRRecognizeRequest(BaseModel):
+    frames: List[str] = Field(..., description="Base64 encoded video frames")
+    return_alternatives: bool = Field(default=False, description="Return alternative interpretations")
+    confidence_threshold: float = Field(default=0.5, ge=0, le=1, description="Minimum confidence threshold")
+
+class SLRRecognizeResponse(BaseModel):
+    sign: str
+    confidence: float
+    alternatives: Optional[List[dict]] = None
+    processing_time_ms: float
+    request_id: str
 
 # ============== AUTH HELPERS ==============
 
@@ -428,6 +447,162 @@ async def clear_history(user: User = Depends(get_current_user)):
     """Clear all history for current user"""
     await db.translation_history.delete_many({"user_id": user.user_id})
     return {"message": "History cleared"}
+
+# ============== SLR (Sign Language Recognition) ROUTES ==============
+
+@api_router.post("/slr/recognize", response_model=SLRRecognizeResponse)
+async def recognize_sign(
+    request: SLRRecognizeRequest,
+    user: User = Depends(get_current_user)
+):
+    """
+    Recognize ASL signs from video frames.
+    Proxies request to SonZo SLR API (api.sonzo.io)
+    """
+    if not SONZO_SLR_API_KEY:
+        raise HTTPException(
+            status_code=503,
+            detail="SLR service not configured. Set SONZO_SLR_API_KEY environment variable."
+        )
+
+    # Validate frame count
+    if len(request.frames) < 1 or len(request.frames) > 30:
+        raise HTTPException(status_code=400, detail="1-30 frames required")
+
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as http_client:
+            response = await http_client.post(
+                f"{SONZO_SLR_API_URL}/api/slr/recognize",
+                json={
+                    "frames": request.frames,
+                    "return_alternatives": request.return_alternatives,
+                    "confidence_threshold": request.confidence_threshold
+                },
+                headers={
+                    "X-API-Key": SONZO_SLR_API_KEY,
+                    "Content-Type": "application/json"
+                }
+            )
+
+            if response.status_code == 401:
+                raise HTTPException(status_code=503, detail="SLR API authentication failed")
+            elif response.status_code == 429:
+                raise HTTPException(status_code=429, detail="SLR API rate limit exceeded")
+            elif response.status_code != 200:
+                logger.error(f"SLR API error: {response.status_code} - {response.text}")
+                raise HTTPException(status_code=502, detail="SLR service error")
+
+            result = response.json()
+
+            # Auto-save to history if confidence is high enough
+            if result.get("confidence", 0) >= request.confidence_threshold:
+                history_doc = {
+                    "history_id": f"hist_{uuid.uuid4().hex[:12]}",
+                    "user_id": user.user_id,
+                    "input_type": "asl_to_text",
+                    "input_content": f"[{len(request.frames)} frames]",
+                    "output_content": result.get("sign", "UNKNOWN"),
+                    "confidence": result.get("confidence"),
+                    "created_at": datetime.now(timezone.utc).isoformat()
+                }
+                await db.translation_history.insert_one(history_doc)
+
+            return SLRRecognizeResponse(
+                sign=result.get("sign", "UNKNOWN"),
+                confidence=result.get("confidence", 0),
+                alternatives=result.get("alternatives"),
+                processing_time_ms=result.get("processing_time_ms", 0),
+                request_id=result.get("request_id", str(uuid.uuid4()))
+            )
+
+    except httpx.TimeoutException:
+        raise HTTPException(status_code=504, detail="SLR service timeout")
+    except httpx.RequestError as e:
+        logger.error(f"SLR API connection error: {e}")
+        raise HTTPException(status_code=503, detail="SLR service unavailable")
+
+@api_router.get("/slr/signs")
+async def get_supported_signs(user: User = Depends(get_current_user)):
+    """Get list of all supported ASL signs from SonZo SLR API"""
+    if not SONZO_SLR_API_KEY:
+        raise HTTPException(
+            status_code=503,
+            detail="SLR service not configured"
+        )
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as http_client:
+            response = await http_client.get(
+                f"{SONZO_SLR_API_URL}/api/slr/signs",
+                headers={"X-API-Key": SONZO_SLR_API_KEY}
+            )
+
+            if response.status_code != 200:
+                raise HTTPException(status_code=502, detail="SLR service error")
+
+            return response.json()
+
+    except httpx.RequestError as e:
+        logger.error(f"SLR API connection error: {e}")
+        raise HTTPException(status_code=503, detail="SLR service unavailable")
+
+@api_router.get("/slr/usage")
+async def get_slr_usage(user: User = Depends(get_current_user)):
+    """Get SLR API usage statistics"""
+    if not SONZO_SLR_API_KEY:
+        raise HTTPException(
+            status_code=503,
+            detail="SLR service not configured"
+        )
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as http_client:
+            response = await http_client.get(
+                f"{SONZO_SLR_API_URL}/api/slr/usage",
+                headers={"X-API-Key": SONZO_SLR_API_KEY}
+            )
+
+            if response.status_code != 200:
+                raise HTTPException(status_code=502, detail="SLR service error")
+
+            return response.json()
+
+    except httpx.RequestError as e:
+        logger.error(f"SLR API connection error: {e}")
+        raise HTTPException(status_code=503, detail="SLR service unavailable")
+
+@api_router.get("/slr/health")
+async def slr_health_check():
+    """Check SonZo SLR API health"""
+    if not SONZO_SLR_API_KEY:
+        return {
+            "status": "not_configured",
+            "message": "SONZO_SLR_API_KEY not set"
+        }
+
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as http_client:
+            response = await http_client.get(f"{SONZO_SLR_API_URL}/health")
+
+            if response.status_code == 200:
+                return {
+                    "status": "healthy",
+                    "api_url": SONZO_SLR_API_URL,
+                    "response": response.json()
+                }
+            else:
+                return {
+                    "status": "unhealthy",
+                    "api_url": SONZO_SLR_API_URL,
+                    "error": f"Status {response.status_code}"
+                }
+
+    except httpx.RequestError as e:
+        return {
+            "status": "unreachable",
+            "api_url": SONZO_SLR_API_URL,
+            "error": str(e)
+        }
 
 # ============== UTILITY ROUTES ==============
 
