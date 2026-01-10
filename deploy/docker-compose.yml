@@ -1,0 +1,92 @@
+version: '3.8'
+
+# SonZo AI - Production Deployment
+# =================================
+# Deploy to sonzo.io with SSL/HTTPS
+
+services:
+  # Nginx reverse proxy with SSL
+  nginx:
+    image: nginx:alpine
+    container_name: sonzo-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./ssl:/etc/nginx/ssl:ro
+      - ../ui:/var/www/ui:ro
+    depends_on:
+      - ui
+      - avatar
+      - recognition
+    restart: unless-stopped
+
+  # UI Backend API
+  ui:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.ui
+    container_name: sonzo-ui
+    environment:
+      - SONZO_DATA_DIR=/data
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - sonzo-data:/data
+    expose:
+      - "8081"
+    restart: unless-stopped
+
+  # Avatar API
+  avatar:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.avatar
+    container_name: sonzo-avatar
+    environment:
+      - AVATAR_DATA_DIR=/data/avatars
+      - AVATAR_VIDEO_DIR=/data/videos
+    volumes:
+      - sonzo-data:/data
+      - avatar-models:/models
+    expose:
+      - "8080"
+    restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  # Recognition API
+  recognition:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.recognition
+    container_name: sonzo-recognition
+    environment:
+      - MODEL_PATH=/models/slr_model.pt
+      - SONZO_DEMO_MODE=${DEMO_MODE:-0}
+    volumes:
+      - recognition-models:/models
+    expose:
+      - "8082"
+    restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+volumes:
+  sonzo-data:
+  avatar-models:
+  recognition-models:
+
+networks:
+  default:
+    name: sonzo-network
