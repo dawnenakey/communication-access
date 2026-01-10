@@ -278,10 +278,15 @@ class BlenderSceneSetup:
 
         return hand_mesh
 
-    def load_mano_model(self, model_path: str) -> bpy.types.Object:
+    def load_mano_model(self, model_path: str, apply_rotation_fix: bool = True) -> bpy.types.Object:
         """
         Load MANO hand model from file.
         Supports: .fbx, .obj, .blend
+
+        Args:
+            model_path: Path to the model file
+            apply_rotation_fix: If True, correct MANO's coordinate system to Blender's
+                               MANO uses Y-up with palm facing -Z, but may import inverted
         """
         ext = Path(model_path).suffix.lower()
 
@@ -310,7 +315,70 @@ class BlenderSceneSetup:
         if not self.hand_obj:
             raise ValueError("No mesh found in model")
 
+        # Apply rotation fix for MANO coordinate system
+        # MANO/SMPL-X models often import with incorrect orientation
+        if apply_rotation_fix:
+            self._fix_mano_orientation()
+
         return self.hand_obj
+
+    def _fix_mano_orientation(self):
+        """
+        Fix MANO model orientation to render correctly.
+
+        MANO coordinate system:
+        - Fingers extend along +Y axis
+        - Palm faces -Z (or +Z depending on left/right hand)
+        - Wrist at origin
+
+        Common import issues:
+        - Model appears upside down (180° rotation needed around X)
+        - Model faces wrong direction (rotation around Z needed)
+        """
+        if not self.armature:
+            return
+
+        # Store current selection
+        original_selection = bpy.context.selected_objects.copy()
+        original_active = bpy.context.active_object
+
+        # Select armature and apply rotation
+        bpy.ops.object.select_all(action='DESELECT')
+        self.armature.select_set(True)
+        if self.hand_obj:
+            self.hand_obj.select_set(True)
+        bpy.context.view_layer.objects.active = self.armature
+
+        # Check if model appears inverted by looking at bone directions
+        # If the wrist-to-finger direction is negative Y, flip 180° around X
+        wrist_bone = None
+        finger_bone = None
+
+        for bone in self.armature.data.bones:
+            if 'wrist' in bone.name.lower():
+                wrist_bone = bone
+            elif 'index' in bone.name.lower() and '01' in bone.name:
+                finger_bone = bone
+
+        if wrist_bone and finger_bone:
+            # Check if fingers point in -Y direction (inverted)
+            finger_direction = finger_bone.head_local - wrist_bone.head_local
+            if finger_direction.y < 0:
+                # Model is upside down, rotate 180° around X axis
+                print("Detected inverted MANO model, applying 180° X rotation fix")
+                self.armature.rotation_euler.x += math.pi
+                if self.hand_obj and self.hand_obj.parent != self.armature:
+                    self.hand_obj.rotation_euler.x += math.pi
+
+        # Apply rotation to make it permanent
+        bpy.ops.object.transform_apply(location=False, rotation=True, scale=False)
+
+        # Restore selection
+        bpy.ops.object.select_all(action='DESELECT')
+        for obj in original_selection:
+            obj.select_set(True)
+        if original_active:
+            bpy.context.view_layer.objects.active = original_active
 
     def create_skin_material(self, obj: bpy.types.Object, skin_tone_idx: int = 0):
         """Create realistic skin material."""
@@ -371,16 +439,19 @@ class BlenderSceneSetup:
         elevation = math.radians(random.uniform(*self.config.camera_elevation_range))
         azimuth = math.radians(random.uniform(*self.config.camera_azimuth_range))
 
-        # Calculate position
+        # Calculate position (camera positioned in front and above the hand)
+        # MANO convention: fingers extend along +Y, palm faces -Z
         x = distance * math.cos(elevation) * math.sin(azimuth)
         y = -distance * math.cos(elevation) * math.cos(azimuth)
         z = distance * math.sin(elevation) + 0.1  # Offset for hand height
 
         self.camera.location = Vector((x, y, z))
 
-        # Point at hand
+        # Point at hand center
+        # Use 'Z' as up axis (Blender convention) to prevent upside-down rendering
+        # The '-Z' means camera looks down its -Z axis (standard for Blender cameras)
         direction = Vector((0, 0, 0.1)) - self.camera.location
-        rot_quat = direction.to_track_quat('-Z', 'Y')
+        rot_quat = direction.to_track_quat('-Z', 'Z')
         self.camera.rotation_euler = rot_quat.to_euler()
 
     def setup_lighting(self):
@@ -605,8 +676,14 @@ class RenderingPipeline:
             "samples": []
         }
 
-    def setup(self, model_path: Optional[str] = None):
-        """Initialize the rendering pipeline."""
+    def setup(self, model_path: Optional[str] = None, apply_rotation_fix: bool = True):
+        """Initialize the rendering pipeline.
+
+        Args:
+            model_path: Path to MANO/SMPL-X model file (.fbx, .obj, .blend)
+            apply_rotation_fix: If True, automatically correct MANO orientation
+                               to prevent upside-down rendering
+        """
         # Clear scene
         self.scene_setup.clear_scene()
 
@@ -615,7 +692,7 @@ class RenderingPipeline:
 
         # Load or create hand model
         if model_path and Path(model_path).exists():
-            self.scene_setup.load_mano_model(model_path)
+            self.scene_setup.load_mano_model(model_path, apply_rotation_fix=apply_rotation_fix)
         else:
             print("Creating simple hand model for testing...")
             self.scene_setup.create_simple_hand()
@@ -818,6 +895,8 @@ def main():
     parser.add_argument('--samples', type=int, default=10, help='Samples per handshape')
     parser.add_argument('--size', type=int, default=512, help='Image size')
     parser.add_argument('--test', action='store_true', help='Run test render')
+    parser.add_argument('--no-rotation-fix', action='store_true',
+                       help='Disable automatic MANO orientation correction')
 
     args = parser.parse_args(argv)
 
@@ -829,7 +908,8 @@ def main():
 
     # Initialize pipeline
     pipeline = RenderingPipeline(config)
-    pipeline.setup(args.model)
+    apply_rotation_fix = not getattr(args, 'no_rotation_fix', False)
+    pipeline.setup(args.model, apply_rotation_fix=apply_rotation_fix)
 
     if args.test:
         # Quick test render
