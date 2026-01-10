@@ -672,6 +672,385 @@ ASL_HANDSHAPES: Dict[str, HandshapeConfig] = {
             thumb=[[0.4, 0.3, 0.0], [0.2, 0.0, 0.0], [0.1, 0.0, 0.0]]
         )
     ),
+
+    # ============================================================================
+    # COMMON ASL SIGNS (Key Frame Poses)
+    # These signs involve movement - we capture key frame handshapes
+    # ============================================================================
+
+    # === GREETINGS & BASICS ===
+
+    "HELLO": HandshapeConfig(
+        name="HELLO",
+        description="Flat hand at forehead (salute position) - wave motion",
+        pose=make_pose(
+            index=[EXTENDED, EXTENDED, EXTENDED],
+            middle=[EXTENDED, EXTENDED, EXTENDED],
+            ring=[EXTENDED, EXTENDED, EXTENDED],
+            pinky=[EXTENDED, EXTENDED, EXTENDED],
+            thumb=THUMB_ALONGSIDE
+        ),
+        movement_required=True
+    ),
+
+    "GOODBYE": HandshapeConfig(
+        name="GOODBYE",
+        description="Open hand waving - fingers together",
+        pose=make_pose(
+            index=[EXTENDED, EXTENDED, EXTENDED],
+            middle=[EXTENDED, EXTENDED, EXTENDED],
+            ring=[EXTENDED, EXTENDED, EXTENDED],
+            pinky=[EXTENDED, EXTENDED, EXTENDED],
+            thumb=THUMB_ALONGSIDE
+        ),
+        movement_required=True
+    ),
+
+    "THANK_YOU": HandshapeConfig(
+        name="THANK_YOU",
+        description="Flat hand touches chin then moves outward",
+        pose=make_pose(
+            index=[EXTENDED, EXTENDED, EXTENDED],
+            middle=[EXTENDED, EXTENDED, EXTENDED],
+            ring=[EXTENDED, EXTENDED, EXTENDED],
+            pinky=[EXTENDED, EXTENDED, EXTENDED],
+            thumb=THUMB_ALONGSIDE
+        ),
+        movement_required=True
+    ),
+
+    "PLEASE": HandshapeConfig(
+        name="PLEASE",
+        description="Flat hand circles on chest",
+        pose=make_pose(
+            index=[EXTENDED, EXTENDED, EXTENDED],
+            middle=[EXTENDED, EXTENDED, EXTENDED],
+            ring=[EXTENDED, EXTENDED, EXTENDED],
+            pinky=[EXTENDED, EXTENDED, EXTENDED],
+            thumb=THUMB_ALONGSIDE
+        ),
+        movement_required=True
+    ),
+
+    "SORRY": HandshapeConfig(
+        name="SORRY",
+        description="Fist (A-hand) circles on chest",
+        pose=make_pose(
+            index=[FULLY_FLEXED, FULLY_FLEXED, [1.2, 0.0, 0.0]],
+            middle=[FULLY_FLEXED, FULLY_FLEXED, [1.2, 0.0, 0.0]],
+            ring=[FULLY_FLEXED, FULLY_FLEXED, [1.2, 0.0, 0.0]],
+            pinky=[FULLY_FLEXED, FULLY_FLEXED, [1.2, 0.0, 0.0]],
+            thumb=THUMB_ALONGSIDE
+        ),
+        movement_required=True
+    ),
+
+    # === YES/NO/MAYBE ===
+
+    "YES": HandshapeConfig(
+        name="YES",
+        description="S-hand nodding motion (fist nods like head)",
+        pose=make_pose(
+            index=[FULLY_FLEXED, FULLY_FLEXED, [1.2, 0.0, 0.0]],
+            middle=[FULLY_FLEXED, FULLY_FLEXED, [1.2, 0.0, 0.0]],
+            ring=[FULLY_FLEXED, FULLY_FLEXED, [1.2, 0.0, 0.0]],
+            pinky=[FULLY_FLEXED, FULLY_FLEXED, [1.2, 0.0, 0.0]],
+            thumb=[[0.8, 0.6, 0.0], [0.4, 0.0, 0.0], [0.2, 0.0, 0.0]]
+        ),
+        movement_required=True
+    ),
+
+    "NO": HandshapeConfig(
+        name="NO",
+        description="Index and middle fingers snap to thumb",
+        pose=make_pose(
+            index=[[0.5, 0.0, 0.0], [0.3, 0.0, 0.0], [0.2, 0.0, 0.0]],
+            middle=[[0.5, 0.0, 0.0], [0.3, 0.0, 0.0], [0.2, 0.0, 0.0]],
+            ring=[FULLY_FLEXED, FULLY_FLEXED, [1.2, 0.0, 0.0]],
+            pinky=[FULLY_FLEXED, FULLY_FLEXED, [1.2, 0.0, 0.0]],
+            thumb=[[0.4, 0.4, 0.0], [0.2, 0.0, 0.0], [0.1, 0.0, 0.0]]
+        ),
+        movement_required=True
+    ),
+
+    "MAYBE": HandshapeConfig(
+        name="MAYBE",
+        description="Flat hands alternating up and down",
+        pose=make_pose(
+            index=[EXTENDED, EXTENDED, EXTENDED],
+            middle=[EXTENDED, EXTENDED, EXTENDED],
+            ring=[EXTENDED, EXTENDED, EXTENDED],
+            pinky=[EXTENDED, EXTENDED, EXTENDED],
+            thumb=THUMB_ALONGSIDE
+        ),
+        two_handed=True,
+        movement_required=True
+    ),
+
+    # === QUESTION WORDS ===
+
+    "WHAT": HandshapeConfig(
+        name="WHAT",
+        description="Index finger brushes across flat palm",
+        pose=make_pose(
+            index=[EXTENDED, EXTENDED, EXTENDED],
+            middle=[FULLY_FLEXED, FULLY_FLEXED, [1.2, 0.0, 0.0]],
+            ring=[FULLY_FLEXED, FULLY_FLEXED, [1.2, 0.0, 0.0]],
+            pinky=[FULLY_FLEXED, FULLY_FLEXED, [1.2, 0.0, 0.0]],
+            thumb=THUMB_ALONGSIDE
+        ),
+        movement_required=True
+    ),
+
+    "WHERE": HandshapeConfig(
+        name="WHERE",
+        description="Index finger wags side to side",
+        pose=make_pose(
+            index=[EXTENDED, EXTENDED, EXTENDED],
+            middle=[FULLY_FLEXED, FULLY_FLEXED, [1.2, 0.0, 0.0]],
+            ring=[FULLY_FLEXED, FULLY_FLEXED, [1.2, 0.0, 0.0]],
+            pinky=[FULLY_FLEXED, FULLY_FLEXED, [1.2, 0.0, 0.0]],
+            thumb=THUMB_ALONGSIDE
+        ),
+        movement_required=True,
+        non_manual_markers=["furrowed_brow"]
+    ),
+
+    "WHO": HandshapeConfig(
+        name="WHO",
+        description="Index finger circles around mouth",
+        pose=make_pose(
+            index=[[0.0, 0.0, 0.0], [0.8, 0.0, 0.0], [0.5, 0.0, 0.0]],  # Bent index
+            middle=[FULLY_FLEXED, FULLY_FLEXED, [1.2, 0.0, 0.0]],
+            ring=[FULLY_FLEXED, FULLY_FLEXED, [1.2, 0.0, 0.0]],
+            pinky=[FULLY_FLEXED, FULLY_FLEXED, [1.2, 0.0, 0.0]],
+            thumb=THUMB_ALONGSIDE
+        ),
+        movement_required=True,
+        non_manual_markers=["furrowed_brow"]
+    ),
+
+    "WHY": HandshapeConfig(
+        name="WHY",
+        description="Touch forehead with middle finger, pull away into Y",
+        pose=make_pose(
+            index=[FULLY_FLEXED, FULLY_FLEXED, [1.2, 0.0, 0.0]],
+            middle=[EXTENDED, EXTENDED, EXTENDED],
+            ring=[FULLY_FLEXED, FULLY_FLEXED, [1.2, 0.0, 0.0]],
+            pinky=[FULLY_FLEXED, FULLY_FLEXED, [1.2, 0.0, 0.0]],
+            thumb=THUMB_ALONGSIDE
+        ),
+        movement_required=True,
+        non_manual_markers=["furrowed_brow"]
+    ),
+
+    "HOW": HandshapeConfig(
+        name="HOW",
+        description="Bent hands rotate outward (knuckles together then apart)",
+        pose=make_pose(
+            index=[[0.8, 0.0, 0.0], [0.8, 0.0, 0.0], [0.5, 0.0, 0.0]],
+            middle=[[0.8, 0.0, 0.0], [0.8, 0.0, 0.0], [0.5, 0.0, 0.0]],
+            ring=[[0.8, 0.0, 0.0], [0.8, 0.0, 0.0], [0.5, 0.0, 0.0]],
+            pinky=[[0.8, 0.0, 0.0], [0.8, 0.0, 0.0], [0.5, 0.0, 0.0]],
+            thumb=THUMB_EXTENDED
+        ),
+        two_handed=True,
+        movement_required=True
+    ),
+
+    # === COMMON VERBS ===
+
+    "HELP": HandshapeConfig(
+        name="HELP",
+        description="Fist on flat palm, both move up",
+        pose=make_pose(
+            index=[FULLY_FLEXED, FULLY_FLEXED, [1.2, 0.0, 0.0]],
+            middle=[FULLY_FLEXED, FULLY_FLEXED, [1.2, 0.0, 0.0]],
+            ring=[FULLY_FLEXED, FULLY_FLEXED, [1.2, 0.0, 0.0]],
+            pinky=[FULLY_FLEXED, FULLY_FLEXED, [1.2, 0.0, 0.0]],
+            thumb=THUMB_UP
+        ),
+        two_handed=True,
+        movement_required=True
+    ),
+
+    "WANT": HandshapeConfig(
+        name="WANT",
+        description="Claw hands pull toward body",
+        pose=make_pose(
+            index=[[0.0, 0.3, 0.0], [0.8, 0.0, 0.0], [0.6, 0.0, 0.0]],
+            middle=[[0.0, 0.1, 0.0], [0.8, 0.0, 0.0], [0.6, 0.0, 0.0]],
+            ring=[[0.0, -0.1, 0.0], [0.8, 0.0, 0.0], [0.6, 0.0, 0.0]],
+            pinky=[[0.0, -0.3, 0.0], [0.8, 0.0, 0.0], [0.6, 0.0, 0.0]],
+            thumb=[[0.3, 0.3, 0.0], [0.5, 0.0, 0.0], [0.4, 0.0, 0.0]]
+        ),
+        movement_required=True
+    ),
+
+    "NEED": HandshapeConfig(
+        name="NEED",
+        description="X-hand bends down at wrist",
+        pose=make_pose(
+            index=[[0.0, 0.0, 0.0], [1.2, 0.0, 0.0], [0.8, 0.0, 0.0]],
+            middle=[FULLY_FLEXED, FULLY_FLEXED, [1.2, 0.0, 0.0]],
+            ring=[FULLY_FLEXED, FULLY_FLEXED, [1.2, 0.0, 0.0]],
+            pinky=[FULLY_FLEXED, FULLY_FLEXED, [1.2, 0.0, 0.0]],
+            thumb=THUMB_ALONGSIDE
+        ),
+        movement_required=True
+    ),
+
+    "LIKE": HandshapeConfig(
+        name="LIKE",
+        description="Open 8 hand pulls away from chest",
+        pose=make_pose(
+            index=[EXTENDED, EXTENDED, EXTENDED],
+            middle=[[0.5, 0.0, 0.0], [1.0, 0.0, 0.0], [0.5, 0.0, 0.0]],
+            ring=[EXTENDED, EXTENDED, EXTENDED],
+            pinky=[EXTENDED, EXTENDED, EXTENDED],
+            thumb=THUMB_EXTENDED
+        ),
+        movement_required=True
+    ),
+
+    "KNOW": HandshapeConfig(
+        name="KNOW",
+        description="Flat hand taps forehead",
+        pose=make_pose(
+            index=[EXTENDED, EXTENDED, EXTENDED],
+            middle=[EXTENDED, EXTENDED, EXTENDED],
+            ring=[EXTENDED, EXTENDED, EXTENDED],
+            pinky=[EXTENDED, EXTENDED, EXTENDED],
+            thumb=THUMB_ALONGSIDE
+        ),
+        movement_required=True
+    ),
+
+    "UNDERSTAND": HandshapeConfig(
+        name="UNDERSTAND",
+        description="Index finger flicks up near forehead",
+        pose=make_pose(
+            index=[EXTENDED, EXTENDED, EXTENDED],
+            middle=[FULLY_FLEXED, FULLY_FLEXED, [1.2, 0.0, 0.0]],
+            ring=[FULLY_FLEXED, FULLY_FLEXED, [1.2, 0.0, 0.0]],
+            pinky=[FULLY_FLEXED, FULLY_FLEXED, [1.2, 0.0, 0.0]],
+            thumb=THUMB_ALONGSIDE
+        ),
+        movement_required=True
+    ),
+
+    "LEARN": HandshapeConfig(
+        name="LEARN",
+        description="Flat O from palm to forehead",
+        pose=make_pose(
+            index=[[0.5, 0.0, 0.0], [0.3, 0.0, 0.0], [0.2, 0.0, 0.0]],
+            middle=[[0.5, 0.0, 0.0], [0.3, 0.0, 0.0], [0.2, 0.0, 0.0]],
+            ring=[[0.5, 0.0, 0.0], [0.3, 0.0, 0.0], [0.2, 0.0, 0.0]],
+            pinky=[[0.5, 0.0, 0.0], [0.3, 0.0, 0.0], [0.2, 0.0, 0.0]],
+            thumb=[[0.4, 0.3, 0.0], [0.2, 0.0, 0.0], [0.1, 0.0, 0.0]]
+        ),
+        movement_required=True
+    ),
+
+    # === PEOPLE/RELATIONSHIPS ===
+
+    "MOTHER": HandshapeConfig(
+        name="MOTHER",
+        description="5-hand with thumb on chin",
+        pose=make_pose(
+            index=[SPREAD_EXTENDED, EXTENDED, EXTENDED],
+            middle=[[0.0, 0.1, 0.0], EXTENDED, EXTENDED],
+            ring=[[0.0, -0.1, 0.0], EXTENDED, EXTENDED],
+            pinky=[[0.0, -0.3, 0.0], EXTENDED, EXTENDED],
+            thumb=THUMB_EXTENDED
+        ),
+        movement_required=False
+    ),
+
+    "FATHER": HandshapeConfig(
+        name="FATHER",
+        description="5-hand with thumb on forehead",
+        pose=make_pose(
+            index=[SPREAD_EXTENDED, EXTENDED, EXTENDED],
+            middle=[[0.0, 0.1, 0.0], EXTENDED, EXTENDED],
+            ring=[[0.0, -0.1, 0.0], EXTENDED, EXTENDED],
+            pinky=[[0.0, -0.3, 0.0], EXTENDED, EXTENDED],
+            thumb=THUMB_EXTENDED
+        ),
+        movement_required=False
+    ),
+
+    "FRIEND": HandshapeConfig(
+        name="FRIEND",
+        description="X-hands hook together and reverse",
+        pose=make_pose(
+            index=[[0.0, 0.0, 0.0], [1.2, 0.0, 0.0], [0.8, 0.0, 0.0]],
+            middle=[FULLY_FLEXED, FULLY_FLEXED, [1.2, 0.0, 0.0]],
+            ring=[FULLY_FLEXED, FULLY_FLEXED, [1.2, 0.0, 0.0]],
+            pinky=[FULLY_FLEXED, FULLY_FLEXED, [1.2, 0.0, 0.0]],
+            thumb=THUMB_ALONGSIDE
+        ),
+        two_handed=True,
+        movement_required=True
+    ),
+
+    # === TIME/COMMON WORDS ===
+
+    "NOW": HandshapeConfig(
+        name="NOW",
+        description="Y-hands drop down",
+        pose=make_pose(
+            index=[FULLY_FLEXED, FULLY_FLEXED, [1.2, 0.0, 0.0]],
+            middle=[FULLY_FLEXED, FULLY_FLEXED, [1.2, 0.0, 0.0]],
+            ring=[FULLY_FLEXED, FULLY_FLEXED, [1.2, 0.0, 0.0]],
+            pinky=[EXTENDED, [0.0, 0.3, 0.0], EXTENDED],
+            thumb=THUMB_EXTENDED
+        ),
+        two_handed=True,
+        movement_required=True
+    ),
+
+    "AGAIN": HandshapeConfig(
+        name="AGAIN",
+        description="Bent hand lands in flat palm",
+        pose=make_pose(
+            index=[[0.8, 0.0, 0.0], [0.5, 0.0, 0.0], [0.3, 0.0, 0.0]],
+            middle=[[0.8, 0.0, 0.0], [0.5, 0.0, 0.0], [0.3, 0.0, 0.0]],
+            ring=[[0.8, 0.0, 0.0], [0.5, 0.0, 0.0], [0.3, 0.0, 0.0]],
+            pinky=[[0.8, 0.0, 0.0], [0.5, 0.0, 0.0], [0.3, 0.0, 0.0]],
+            thumb=THUMB_ALONGSIDE
+        ),
+        two_handed=True,
+        movement_required=True
+    ),
+
+    "MORE": HandshapeConfig(
+        name="MORE",
+        description="Flat O hands tap together",
+        pose=make_pose(
+            index=[[0.5, 0.0, 0.0], [0.3, 0.0, 0.0], [0.2, 0.0, 0.0]],
+            middle=[[0.5, 0.0, 0.0], [0.3, 0.0, 0.0], [0.2, 0.0, 0.0]],
+            ring=[[0.5, 0.0, 0.0], [0.3, 0.0, 0.0], [0.2, 0.0, 0.0]],
+            pinky=[[0.5, 0.0, 0.0], [0.3, 0.0, 0.0], [0.2, 0.0, 0.0]],
+            thumb=[[0.4, 0.3, 0.0], [0.2, 0.0, 0.0], [0.1, 0.0, 0.0]]
+        ),
+        two_handed=True,
+        movement_required=True
+    ),
+
+    "FINISH": HandshapeConfig(
+        name="FINISH",
+        description="5-hands flip outward",
+        pose=make_pose(
+            index=[SPREAD_EXTENDED, EXTENDED, EXTENDED],
+            middle=[[0.0, 0.1, 0.0], EXTENDED, EXTENDED],
+            ring=[[0.0, -0.1, 0.0], EXTENDED, EXTENDED],
+            pinky=[[0.0, -0.3, 0.0], EXTENDED, EXTENDED],
+            thumb=THUMB_EXTENDED
+        ),
+        two_handed=True,
+        movement_required=True
+    ),
 }
 
 
@@ -712,6 +1091,24 @@ def get_number_handshapes() -> List[str]:
 def get_classifier_handshapes() -> List[str]:
     """Get classifier handshapes."""
     return [k for k in ASL_HANDSHAPES.keys() if k.startswith("CL_")]
+
+
+def get_common_signs() -> List[str]:
+    """Get common ASL signs (greetings, questions, verbs, etc.)."""
+    common = [
+        "HELLO", "GOODBYE", "THANK_YOU", "PLEASE", "SORRY",
+        "YES", "NO", "MAYBE",
+        "WHAT", "WHERE", "WHO", "WHY", "HOW",
+        "HELP", "WANT", "NEED", "LIKE", "KNOW", "UNDERSTAND", "LEARN",
+        "MOTHER", "FATHER", "FRIEND",
+        "NOW", "AGAIN", "MORE", "FINISH"
+    ]
+    return [s for s in common if s in ASL_HANDSHAPES]
+
+
+def get_all_training_signs() -> List[str]:
+    """Get all signs suitable for training (alphabet + numbers + common signs)."""
+    return get_alphabet_handshapes() + get_number_handshapes() + get_common_signs()
 
 
 def validate_pose(pose: List[List[float]]) -> bool:
