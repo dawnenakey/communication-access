@@ -1,0 +1,986 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <meta name="description" content="SonZo AI - Your friendly ASL companion">
+    <meta name="theme-color" content="#6366f1">
+    <title>SonZo AI - Sign Language Companion</title>
+
+    <!-- Accessibility: Prefers reduced motion -->
+    <meta name="color-scheme" content="light dark">
+
+    <!-- PWA Support -->
+    <link rel="manifest" href="manifest.json">
+    <link rel="apple-touch-icon" href="assets/icon-192.png">
+
+    <!-- Styles -->
+    <link rel="stylesheet" href="css/variables.css">
+    <link rel="stylesheet" href="css/base.css">
+    <link rel="stylesheet" href="css/components.css">
+    <link rel="stylesheet" href="css/animations.css">
+    <link rel="stylesheet" href="css/accessibility.css">
+
+    <!-- Preload critical assets -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <!-- Skip to main content (accessibility) -->
+    <a href="#main-content" class="skip-link">Skip to main content</a>
+
+    <!-- ========================================== -->
+    <!-- APP SHELL -->
+    <!-- ========================================== -->
+    <div id="app" class="app-container">
+
+        <!-- Loading Screen -->
+        <div id="loading-screen" class="screen loading-screen active">
+            <div class="loading-content">
+                <div class="logo-animated">
+                    <svg viewBox="0 0 100 100" class="hand-wave-icon">
+                        <path d="M50 10 L50 30 M35 25 L35 45 M65 25 L65 45 M25 40 L25 60 M75 40 L75 55"
+                              stroke="currentColor" stroke-width="8" stroke-linecap="round" fill="none"/>
+                        <circle cx="50" cy="70" r="20" fill="currentColor" opacity="0.2"/>
+                    </svg>
+                </div>
+                <h1 class="loading-title">SonZo AI</h1>
+                <p class="loading-subtitle">Your Sign Language Companion</p>
+                <div class="loading-progress">
+                    <div class="loading-bar"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ========================================== -->
+        <!-- ONBOARDING SCREENS -->
+        <!-- ========================================== -->
+
+        <!-- Welcome Screen -->
+        <div id="welcome-screen" class="screen onboarding-screen">
+            <div class="onboarding-content">
+                <div class="welcome-video-container">
+                    <video id="welcome-video" autoplay loop muted playsinline>
+                        <source src="assets/hello-asl.mp4" type="video/mp4">
+                    </video>
+                    <div class="video-fallback">
+                        <span class="hand-emoji">👋</span>
+                    </div>
+                </div>
+
+                <h1 class="welcome-title">Welcome to SonZo</h1>
+                <p class="welcome-subtitle">Let's break down communication barriers together</p>
+
+                <div class="welcome-features">
+                    <div class="feature-item">
+                        <span class="feature-icon">🤟</span>
+                        <span class="feature-text">Real-time sign recognition</span>
+                    </div>
+                    <div class="feature-item">
+                        <span class="feature-icon">🧑‍🎨</span>
+                        <span class="feature-text">Personal signing avatar</span>
+                    </div>
+                    <div class="feature-item">
+                        <span class="feature-icon">💬</span>
+                        <span class="feature-text">Two-way conversations</span>
+                    </div>
+                </div>
+
+                <button class="btn btn-primary btn-large" onclick="app.startOnboarding()">
+                    Get Started
+                </button>
+
+                <button class="btn btn-text" onclick="app.skipOnboarding()">
+                    I already have an account
+                </button>
+            </div>
+        </div>
+
+        <!-- Step 1: Create Avatar -->
+        <div id="onboard-avatar" class="screen onboarding-screen">
+            <div class="onboarding-header">
+                <button class="btn-back" onclick="app.onboardingBack()" aria-label="Go back">
+                    <svg viewBox="0 0 24 24" width="24" height="24"><path d="M19 12H5M12 19l-7-7 7-7" stroke="currentColor" stroke-width="2" fill="none"/></svg>
+                </button>
+                <div class="progress-dots">
+                    <span class="dot active"></span>
+                    <span class="dot"></span>
+                    <span class="dot"></span>
+                </div>
+                <div class="spacer"></div>
+            </div>
+
+            <div class="onboarding-content">
+                <h2>Create Your Avatar</h2>
+                <p class="subtitle">Your avatar will sign back to you in conversations</p>
+
+                <div class="avatar-capture-area">
+                    <div class="capture-preview" id="avatar-preview">
+                        <div class="placeholder-avatar">
+                            <svg viewBox="0 0 100 100" width="120" height="120">
+                                <circle cx="50" cy="35" r="25" fill="currentColor" opacity="0.3"/>
+                                <ellipse cx="50" cy="85" rx="35" ry="25" fill="currentColor" opacity="0.3"/>
+                            </svg>
+                            <span>Add your photo</span>
+                        </div>
+                        <img id="avatar-image" class="hidden" alt="Your avatar preview">
+                    </div>
+
+                    <div class="capture-actions">
+                        <button class="btn btn-secondary" onclick="app.openCamera()">
+                            <svg viewBox="0 0 24 24" width="20" height="20"><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z" stroke="currentColor" stroke-width="2" fill="none"/><circle cx="12" cy="13" r="4" stroke="currentColor" stroke-width="2" fill="none"/></svg>
+                            Take Photo
+                        </button>
+                        <button class="btn btn-secondary" onclick="app.uploadPhoto()">
+                            <svg viewBox="0 0 24 24" width="20" height="20"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12" stroke="currentColor" stroke-width="2" fill="none"/></svg>
+                            Upload
+                        </button>
+                    </div>
+                    <input type="file" id="photo-input" accept="image/*" class="hidden" onchange="app.handlePhotoSelect(event)">
+                </div>
+
+                <div class="avatar-customization hidden" id="avatar-customization">
+                    <h3>Customize Your Avatar</h3>
+
+                    <div class="customization-section">
+                        <label>Skin Tone</label>
+                        <div class="skin-tone-picker">
+                            <button class="skin-tone" style="background: #FFDFC4" data-tone="light" aria-label="Light skin tone"></button>
+                            <button class="skin-tone" style="background: #F0C8A0" data-tone="medium-light" aria-label="Medium light skin tone"></button>
+                            <button class="skin-tone" style="background: #D4A574" data-tone="medium" aria-label="Medium skin tone"></button>
+                            <button class="skin-tone" style="background: #A67B5B" data-tone="medium-dark" aria-label="Medium dark skin tone"></button>
+                            <button class="skin-tone" style="background: #6B4423" data-tone="dark" aria-label="Dark skin tone"></button>
+                            <button class="skin-tone" style="background: #3D2314" data-tone="deep" aria-label="Deep skin tone"></button>
+                        </div>
+                    </div>
+
+                    <div class="customization-section">
+                        <label>Background</label>
+                        <div class="background-picker">
+                            <button class="bg-option" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%)" data-bg="gradient-purple"></button>
+                            <button class="bg-option" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%)" data-bg="gradient-pink"></button>
+                            <button class="bg-option" style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)" data-bg="gradient-blue"></button>
+                            <button class="bg-option" style="background: #f8f9fa" data-bg="light"></button>
+                            <button class="bg-option" style="background: #1a1a2e" data-bg="dark"></button>
+                            <button class="bg-option classroom-bg" data-bg="classroom"></button>
+                        </div>
+                    </div>
+                </div>
+
+                <button class="btn btn-primary btn-large" onclick="app.onboardingNext()" id="avatar-next-btn" disabled>
+                    Continue
+                </button>
+            </div>
+        </div>
+
+        <!-- Step 2: Calibration -->
+        <div id="onboard-calibration" class="screen onboarding-screen">
+            <div class="onboarding-header">
+                <button class="btn-back" onclick="app.onboardingBack()" aria-label="Go back">
+                    <svg viewBox="0 0 24 24" width="24" height="24"><path d="M19 12H5M12 19l-7-7 7-7" stroke="currentColor" stroke-width="2" fill="none"/></svg>
+                </button>
+                <div class="progress-dots">
+                    <span class="dot completed"></span>
+                    <span class="dot active"></span>
+                    <span class="dot"></span>
+                </div>
+                <div class="spacer"></div>
+            </div>
+
+            <div class="onboarding-content">
+                <h2>Quick Calibration</h2>
+                <p class="subtitle">Sign these 3 words so we can learn your style</p>
+
+                <div class="calibration-container">
+                    <div class="calibration-video">
+                        <video id="calibration-camera" autoplay playsinline muted></video>
+                        <canvas id="hand-overlay" class="hand-overlay"></canvas>
+                        <div class="recognition-ring" id="recognition-ring"></div>
+                    </div>
+
+                    <div class="calibration-signs">
+                        <div class="calibration-sign" id="cal-sign-0" data-sign="HELLO">
+                            <div class="sign-demo">
+                                <video src="assets/signs/hello.mp4" muted loop></video>
+                            </div>
+                            <span class="sign-label">HELLO</span>
+                            <span class="sign-status">
+                                <svg class="check-icon hidden" viewBox="0 0 24 24" width="20" height="20"><path d="M20 6L9 17l-5-5" stroke="currentColor" stroke-width="3" fill="none"/></svg>
+                            </span>
+                        </div>
+                        <div class="calibration-sign" id="cal-sign-1" data-sign="THANK_YOU">
+                            <div class="sign-demo">
+                                <video src="assets/signs/thank_you.mp4" muted loop></video>
+                            </div>
+                            <span class="sign-label">THANK YOU</span>
+                            <span class="sign-status">
+                                <svg class="check-icon hidden" viewBox="0 0 24 24" width="20" height="20"><path d="M20 6L9 17l-5-5" stroke="currentColor" stroke-width="3" fill="none"/></svg>
+                            </span>
+                        </div>
+                        <div class="calibration-sign" id="cal-sign-2" data-sign="YES">
+                            <div class="sign-demo">
+                                <video src="assets/signs/yes.mp4" muted loop></video>
+                            </div>
+                            <span class="sign-label">YES</span>
+                            <span class="sign-status">
+                                <svg class="check-icon hidden" viewBox="0 0 24 24" width="20" height="20"><path d="M20 6L9 17l-5-5" stroke="currentColor" stroke-width="3" fill="none"/></svg>
+                            </span>
+                        </div>
+                    </div>
+                </div>
+
+                <button class="btn btn-text" onclick="app.skipCalibration()">
+                    Skip for now
+                </button>
+            </div>
+        </div>
+
+        <!-- Step 3: Preferences -->
+        <div id="onboard-preferences" class="screen onboarding-screen">
+            <div class="onboarding-header">
+                <button class="btn-back" onclick="app.onboardingBack()" aria-label="Go back">
+                    <svg viewBox="0 0 24 24" width="24" height="24"><path d="M19 12H5M12 19l-7-7 7-7" stroke="currentColor" stroke-width="2" fill="none"/></svg>
+                </button>
+                <div class="progress-dots">
+                    <span class="dot completed"></span>
+                    <span class="dot completed"></span>
+                    <span class="dot active"></span>
+                </div>
+                <div class="spacer"></div>
+            </div>
+
+            <div class="onboarding-content">
+                <h2>Tell us about you</h2>
+                <p class="subtitle">We'll personalize your experience</p>
+
+                <div class="preference-section">
+                    <h3>I'm here to...</h3>
+                    <div class="goal-selector">
+                        <button class="goal-option" data-goal="learn" onclick="app.selectGoal('learn')">
+                            <span class="goal-icon">📚</span>
+                            <span class="goal-title">Learn ASL</span>
+                            <span class="goal-desc">I want to learn sign language</span>
+                        </button>
+                        <button class="goal-option" data-goal="communicate" onclick="app.selectGoal('communicate')">
+                            <span class="goal-icon">💬</span>
+                            <span class="goal-title">Communicate</span>
+                            <span class="goal-desc">I'm Deaf/HoH and want to bridge communication</span>
+                        </button>
+                        <button class="goal-option" data-goal="both" onclick="app.selectGoal('both')">
+                            <span class="goal-icon">🤝</span>
+                            <span class="goal-title">Both</span>
+                            <span class="goal-desc">All of the above!</span>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="preference-section">
+                    <h3>Your signing level</h3>
+                    <div class="level-selector">
+                        <button class="level-option" data-level="beginner" onclick="app.selectLevel('beginner')">
+                            <span class="level-emoji">🌱</span>
+                            <span>Beginner</span>
+                        </button>
+                        <button class="level-option" data-level="intermediate" onclick="app.selectLevel('intermediate')">
+                            <span class="level-emoji">🌿</span>
+                            <span>Intermediate</span>
+                        </button>
+                        <button class="level-option" data-level="fluent" onclick="app.selectLevel('fluent')">
+                            <span class="level-emoji">🌳</span>
+                            <span>Fluent</span>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="preference-section">
+                    <h3>Signing speed</h3>
+                    <div class="speed-slider-container">
+                        <input type="range" id="speed-slider" min="0.5" max="1.5" step="0.1" value="1"
+                               aria-label="Avatar signing speed">
+                        <div class="speed-labels">
+                            <span>Slower</span>
+                            <span>Normal</span>
+                            <span>Faster</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="preference-section">
+                    <label class="toggle-option">
+                        <span>Left-handed mode (mirror camera)</span>
+                        <input type="checkbox" id="left-handed-toggle">
+                        <span class="toggle-switch"></span>
+                    </label>
+                </div>
+
+                <button class="btn btn-primary btn-large" onclick="app.completeOnboarding()">
+                    Let's Go! 🎉
+                </button>
+            </div>
+        </div>
+
+        <!-- ========================================== -->
+        <!-- MAIN APP -->
+        <!-- ========================================== -->
+
+        <div id="main-app" class="screen main-app-screen">
+            <!-- Top Navigation -->
+            <header class="app-header">
+                <button class="btn-icon menu-btn" onclick="app.toggleMenu()" aria-label="Open menu">
+                    <svg viewBox="0 0 24 24" width="24" height="24"><path d="M3 12h18M3 6h18M3 18h18" stroke="currentColor" stroke-width="2"/></svg>
+                </button>
+                <h1 class="app-title">SonZo</h1>
+                <div class="header-actions">
+                    <button class="btn-icon streak-btn" onclick="app.showStreak()" aria-label="View streak">
+                        <span class="streak-count" id="streak-count">🔥 5</span>
+                    </button>
+                    <button class="btn-icon profile-btn" onclick="app.showProfile()" aria-label="View profile">
+                        <img id="header-avatar" src="" alt="Your avatar" class="header-avatar-img">
+                    </button>
+                </div>
+            </header>
+
+            <!-- Main Content Area -->
+            <main id="main-content" class="main-content">
+
+                <!-- Quick Actions Bar -->
+                <div class="quick-actions">
+                    <button class="quick-action-btn primary" onclick="app.quickSign()">
+                        <svg viewBox="0 0 24 24" width="28" height="28"><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z" stroke="currentColor" stroke-width="2" fill="none"/><circle cx="12" cy="13" r="4" stroke="currentColor" stroke-width="2" fill="none"/></svg>
+                        <span>Quick Sign</span>
+                    </button>
+                    <button class="quick-action-btn" onclick="app.startConversation()">
+                        <svg viewBox="0 0 24 24" width="24" height="24"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" stroke="currentColor" stroke-width="2" fill="none"/></svg>
+                        <span>Chat</span>
+                    </button>
+                    <button class="quick-action-btn" onclick="app.openPractice()">
+                        <svg viewBox="0 0 24 24" width="24" height="24"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" stroke="currentColor" stroke-width="2" fill="none"/></svg>
+                        <span>Practice</span>
+                    </button>
+                </div>
+
+                <!-- Emergency Phrases (Always Visible) -->
+                <div class="emergency-phrases">
+                    <span class="section-label">Quick phrases</span>
+                    <div class="phrase-chips">
+                        <button class="phrase-chip" onclick="app.signPhrase('HELP')">HELP</button>
+                        <button class="phrase-chip" onclick="app.signPhrase('YES')">YES</button>
+                        <button class="phrase-chip" onclick="app.signPhrase('NO')">NO</button>
+                        <button class="phrase-chip" onclick="app.signPhrase('THANK_YOU')">THANK YOU</button>
+                    </div>
+                </div>
+
+                <!-- Recent Conversations -->
+                <section class="content-section">
+                    <div class="section-header">
+                        <h2>Recent</h2>
+                        <button class="btn-text-small" onclick="app.showAllConversations()">See all</button>
+                    </div>
+                    <div class="conversation-list" id="recent-conversations">
+                        <div class="conversation-item" onclick="app.openConversation('1')">
+                            <div class="conversation-preview">
+                                <span class="last-sign">HELLO, HOW ARE YOU?</span>
+                                <span class="conversation-time">2 min ago</span>
+                            </div>
+                        </div>
+                        <div class="conversation-item" onclick="app.openConversation('2')">
+                            <div class="conversation-preview">
+                                <span class="last-sign">THANK YOU FOR YOUR HELP</span>
+                                <span class="conversation-time">Yesterday</span>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Progress Summary -->
+                <section class="content-section progress-section">
+                    <div class="section-header">
+                        <h2>Your Progress</h2>
+                        <button class="btn-text-small" onclick="app.showDashboard()">Details</button>
+                    </div>
+                    <div class="progress-cards">
+                        <div class="progress-card">
+                            <span class="progress-value" id="signs-learned">47</span>
+                            <span class="progress-label">Signs Learned</span>
+                        </div>
+                        <div class="progress-card">
+                            <span class="progress-value" id="accuracy-score">89%</span>
+                            <span class="progress-label">Accuracy</span>
+                        </div>
+                        <div class="progress-card">
+                            <span class="progress-value" id="practice-time">2.5h</span>
+                            <span class="progress-label">This Week</span>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Favorite Phrases -->
+                <section class="content-section">
+                    <div class="section-header">
+                        <h2>Favorites</h2>
+                        <button class="btn-text-small" onclick="app.manageFavorites()">Edit</button>
+                    </div>
+                    <div class="favorites-grid" id="favorites-grid">
+                        <button class="favorite-item" onclick="app.signPhrase('I_LOVE_YOU')">
+                            <span class="favorite-emoji">🤟</span>
+                            <span class="favorite-text">I Love You</span>
+                        </button>
+                        <button class="favorite-item" onclick="app.signPhrase('NICE_TO_MEET_YOU')">
+                            <span class="favorite-emoji">👋</span>
+                            <span class="favorite-text">Nice to meet you</span>
+                        </button>
+                        <button class="favorite-item" onclick="app.signPhrase('UNDERSTAND')">
+                            <span class="favorite-emoji">💡</span>
+                            <span class="favorite-text">I understand</span>
+                        </button>
+                        <button class="favorite-item add-favorite" onclick="app.addFavorite()">
+                            <span class="favorite-emoji">+</span>
+                            <span class="favorite-text">Add phrase</span>
+                        </button>
+                    </div>
+                </section>
+
+                <!-- Daily Challenge -->
+                <section class="content-section challenge-section">
+                    <div class="challenge-card">
+                        <div class="challenge-header">
+                            <span class="challenge-badge">Daily Challenge</span>
+                            <span class="challenge-reward">+50 XP</span>
+                        </div>
+                        <h3>Learn 3 new question signs</h3>
+                        <div class="challenge-progress">
+                            <div class="challenge-bar" style="--progress: 33%"></div>
+                            <span>1/3 completed</span>
+                        </div>
+                        <button class="btn btn-secondary" onclick="app.startChallenge()">Continue</button>
+                    </div>
+                </section>
+            </main>
+
+            <!-- Bottom Navigation -->
+            <nav class="bottom-nav" role="navigation" aria-label="Main navigation">
+                <button class="nav-item active" onclick="app.switchTab('home')" aria-label="Home">
+                    <svg viewBox="0 0 24 24" width="24" height="24"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z" stroke="currentColor" stroke-width="2" fill="none"/></svg>
+                    <span>Home</span>
+                </button>
+                <button class="nav-item" onclick="app.switchTab('learn')" aria-label="Learn">
+                    <svg viewBox="0 0 24 24" width="24" height="24"><path d="M2 3h6a4 4 0 014 4v14a3 3 0 00-3-3H2zM22 3h-6a4 4 0 00-4 4v14a3 3 0 013-3h7z" stroke="currentColor" stroke-width="2" fill="none"/></svg>
+                    <span>Learn</span>
+                </button>
+                <button class="nav-item nav-item-center" onclick="app.quickSign()" aria-label="Quick Sign">
+                    <div class="nav-center-btn">
+                        <svg viewBox="0 0 24 24" width="28" height="28"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2" fill="none"/><path d="M12 8v8M8 12h8" stroke="currentColor" stroke-width="2"/></svg>
+                    </div>
+                </button>
+                <button class="nav-item" onclick="app.switchTab('chat')" aria-label="Conversations">
+                    <svg viewBox="0 0 24 24" width="24" height="24"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" stroke="currentColor" stroke-width="2" fill="none"/></svg>
+                    <span>Chat</span>
+                </button>
+                <button class="nav-item" onclick="app.switchTab('profile')" aria-label="Profile">
+                    <svg viewBox="0 0 24 24" width="24" height="24"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2" stroke="currentColor" stroke-width="2" fill="none"/><circle cx="12" cy="7" r="4" stroke="currentColor" stroke-width="2" fill="none"/></svg>
+                    <span>Profile</span>
+                </button>
+            </nav>
+        </div>
+
+        <!-- ========================================== -->
+        <!-- SIGNING INTERFACE (Full Screen Modal) -->
+        <!-- ========================================== -->
+
+        <div id="signing-interface" class="screen signing-screen">
+            <div class="signing-header">
+                <button class="btn-icon btn-close" onclick="app.closeSigning()" aria-label="Close">
+                    <svg viewBox="0 0 24 24" width="24" height="24"><path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="2"/></svg>
+                </button>
+                <div class="signing-status">
+                    <span class="status-indicator" id="signing-status">Ready</span>
+                </div>
+                <button class="btn-icon btn-settings" onclick="app.signingSettings()" aria-label="Settings">
+                    <svg viewBox="0 0 24 24" width="24" height="24"><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="2" fill="none"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z" stroke="currentColor" stroke-width="2" fill="none"/></svg>
+                </button>
+            </div>
+
+            <div class="signing-content split-view">
+                <!-- User Camera Side -->
+                <div class="signing-panel user-panel">
+                    <div class="panel-label">You</div>
+                    <div class="camera-container">
+                        <video id="user-camera" autoplay playsinline muted></video>
+                        <canvas id="hand-tracking-overlay" class="tracking-overlay"></canvas>
+
+                        <!-- Recognition Ring -->
+                        <div class="recognition-ring-large" id="main-recognition-ring">
+                            <svg viewBox="0 0 100 100">
+                                <circle cx="50" cy="50" r="45" class="ring-bg"/>
+                                <circle cx="50" cy="50" r="45" class="ring-progress" id="ring-progress"/>
+                            </svg>
+                        </div>
+
+                        <!-- Slow Down Indicator -->
+                        <div class="slow-down-indicator hidden" id="slow-down">
+                            <span>Slow down a bit</span>
+                        </div>
+                    </div>
+
+                    <!-- Recognized Text Bubble -->
+                    <div class="text-bubble-container">
+                        <div class="text-bubble" id="recognized-text">
+                            <span class="bubble-content">Sign something...</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Avatar Response Side -->
+                <div class="signing-panel avatar-panel">
+                    <div class="panel-label">Avatar</div>
+                    <div class="avatar-video-container">
+                        <video id="avatar-video" playsinline></video>
+                        <div class="avatar-placeholder" id="avatar-placeholder">
+                            <img src="" alt="Your avatar" id="avatar-still">
+                            <span>Type or select a phrase for me to sign</span>
+                        </div>
+                    </div>
+
+                    <!-- Avatar Response Bubble -->
+                    <div class="text-bubble-container">
+                        <div class="text-bubble avatar-bubble" id="avatar-text">
+                            <span class="bubble-content">...</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Bottom Input Area -->
+            <div class="signing-input-area">
+                <div class="input-row">
+                    <button class="btn-icon mic-btn" onclick="app.toggleVoiceInput()" aria-label="Voice input">
+                        <svg viewBox="0 0 24 24" width="24" height="24"><path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z" stroke="currentColor" stroke-width="2" fill="none"/><path d="M19 10v2a7 7 0 01-14 0v-2M12 19v4M8 23h8" stroke="currentColor" stroke-width="2" fill="none"/></svg>
+                    </button>
+                    <input type="text" id="text-input" placeholder="Type a message for avatar to sign..."
+                           onkeypress="app.handleTextInput(event)" aria-label="Message input">
+                    <button class="btn-icon send-btn" onclick="app.sendMessage()" aria-label="Send">
+                        <svg viewBox="0 0 24 24" width="24" height="24"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" stroke="currentColor" stroke-width="2" fill="none"/></svg>
+                    </button>
+                </div>
+
+                <!-- Quick Phrase Suggestions -->
+                <div class="phrase-suggestions">
+                    <button class="suggestion-chip" onclick="app.quickSend('HELLO')">Hello</button>
+                    <button class="suggestion-chip" onclick="app.quickSend('HOW_ARE_YOU')">How are you?</button>
+                    <button class="suggestion-chip" onclick="app.quickSend('NICE_TO_MEET_YOU')">Nice to meet you</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ========================================== -->
+        <!-- CONVERSATION MODE -->
+        <!-- ========================================== -->
+
+        <div id="conversation-screen" class="screen conversation-screen">
+            <div class="conversation-header">
+                <button class="btn-icon btn-back" onclick="app.closeConversation()" aria-label="Back">
+                    <svg viewBox="0 0 24 24" width="24" height="24"><path d="M19 12H5M12 19l-7-7 7-7" stroke="currentColor" stroke-width="2" fill="none"/></svg>
+                </button>
+                <h2>Conversation</h2>
+                <button class="btn-icon" onclick="app.exportConversation()" aria-label="Export">
+                    <svg viewBox="0 0 24 24" width="24" height="24"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3" stroke="currentColor" stroke-width="2" fill="none"/></svg>
+                </button>
+            </div>
+
+            <div class="conversation-messages" id="conversation-messages">
+                <!-- Messages will be inserted here -->
+                <div class="message user-message">
+                    <div class="message-content">
+                        <span class="message-sign">HELLO</span>
+                        <video class="message-video" src="" muted loop></video>
+                    </div>
+                    <span class="message-time">2:30 PM</span>
+                </div>
+                <div class="message avatar-message">
+                    <div class="message-content">
+                        <span class="message-sign">HELLO, NICE TO MEET YOU</span>
+                        <video class="message-video" src="" muted loop></video>
+                    </div>
+                    <span class="message-time">2:30 PM</span>
+                </div>
+            </div>
+
+            <div class="conversation-input">
+                <button class="btn-icon camera-btn" onclick="app.signInConversation()" aria-label="Sign a message">
+                    <svg viewBox="0 0 24 24" width="24" height="24"><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z" stroke="currentColor" stroke-width="2" fill="none"/><circle cx="12" cy="13" r="4" stroke="currentColor" stroke-width="2" fill="none"/></svg>
+                </button>
+                <input type="text" placeholder="Type for avatar to sign..." onkeypress="app.sendConversationMessage(event)">
+                <button class="btn-icon send-btn" onclick="app.sendConversationMessage()" aria-label="Send">
+                    <svg viewBox="0 0 24 24" width="24" height="24"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" stroke="currentColor" stroke-width="2" fill="none"/></svg>
+                </button>
+            </div>
+        </div>
+
+        <!-- ========================================== -->
+        <!-- DASHBOARD / ANALYTICS -->
+        <!-- ========================================== -->
+
+        <div id="dashboard-screen" class="screen dashboard-screen">
+            <div class="dashboard-header">
+                <button class="btn-icon btn-back" onclick="app.closeDashboard()" aria-label="Back">
+                    <svg viewBox="0 0 24 24" width="24" height="24"><path d="M19 12H5M12 19l-7-7 7-7" stroke="currentColor" stroke-width="2" fill="none"/></svg>
+                </button>
+                <h2>Your Progress</h2>
+                <div class="spacer"></div>
+            </div>
+
+            <div class="dashboard-content">
+                <!-- Stats Overview -->
+                <div class="stats-grid">
+                    <div class="stat-card large">
+                        <span class="stat-value" id="total-signs">47</span>
+                        <span class="stat-label">Signs Learned</span>
+                        <div class="stat-trend positive">+5 this week</div>
+                    </div>
+                    <div class="stat-card">
+                        <span class="stat-value">🔥 5</span>
+                        <span class="stat-label">Day Streak</span>
+                    </div>
+                    <div class="stat-card">
+                        <span class="stat-value">89%</span>
+                        <span class="stat-label">Accuracy</span>
+                    </div>
+                    <div class="stat-card">
+                        <span class="stat-value">12.5h</span>
+                        <span class="stat-label">Total Practice</span>
+                    </div>
+                </div>
+
+                <!-- Progress Chart -->
+                <div class="chart-section">
+                    <h3>Weekly Activity</h3>
+                    <div class="activity-chart" id="activity-chart">
+                        <div class="chart-bar" style="--height: 60%"><span>M</span></div>
+                        <div class="chart-bar" style="--height: 80%"><span>T</span></div>
+                        <div class="chart-bar" style="--height: 40%"><span>W</span></div>
+                        <div class="chart-bar" style="--height: 90%"><span>T</span></div>
+                        <div class="chart-bar" style="--height: 70%"><span>F</span></div>
+                        <div class="chart-bar" style="--height: 30%"><span>S</span></div>
+                        <div class="chart-bar today" style="--height: 50%"><span>S</span></div>
+                    </div>
+                </div>
+
+                <!-- Signs to Practice -->
+                <div class="practice-section">
+                    <h3>Focus Areas</h3>
+                    <p class="section-subtitle">Signs you often confuse</p>
+                    <div class="confused-signs">
+                        <div class="confused-pair">
+                            <span class="sign-name">MOTHER</span>
+                            <span class="vs">vs</span>
+                            <span class="sign-name">FATHER</span>
+                            <button class="btn btn-small" onclick="app.practiceSign('MOTHER')">Practice</button>
+                        </div>
+                        <div class="confused-pair">
+                            <span class="sign-name">WHO</span>
+                            <span class="vs">vs</span>
+                            <span class="sign-name">WHAT</span>
+                            <button class="btn btn-small" onclick="app.practiceSign('WHO')">Practice</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Achievements -->
+                <div class="achievements-section">
+                    <h3>Achievements</h3>
+                    <div class="badges-grid">
+                        <div class="badge earned">
+                            <span class="badge-icon">🎯</span>
+                            <span class="badge-name">First Sign</span>
+                        </div>
+                        <div class="badge earned">
+                            <span class="badge-icon">🔤</span>
+                            <span class="badge-name">Alphabet Master</span>
+                        </div>
+                        <div class="badge earned">
+                            <span class="badge-icon">🔥</span>
+                            <span class="badge-name">5 Day Streak</span>
+                        </div>
+                        <div class="badge">
+                            <span class="badge-icon">💯</span>
+                            <span class="badge-name">50 Signs</span>
+                            <span class="badge-progress">47/50</span>
+                        </div>
+                        <div class="badge locked">
+                            <span class="badge-icon">🏆</span>
+                            <span class="badge-name">Conversation Pro</span>
+                        </div>
+                        <div class="badge locked">
+                            <span class="badge-icon">⭐</span>
+                            <span class="badge-name">30 Day Streak</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ========================================== -->
+        <!-- SETTINGS / PROFILE -->
+        <!-- ========================================== -->
+
+        <div id="settings-screen" class="screen settings-screen">
+            <div class="settings-header">
+                <button class="btn-icon btn-back" onclick="app.closeSettings()" aria-label="Back">
+                    <svg viewBox="0 0 24 24" width="24" height="24"><path d="M19 12H5M12 19l-7-7 7-7" stroke="currentColor" stroke-width="2" fill="none"/></svg>
+                </button>
+                <h2>Settings</h2>
+                <div class="spacer"></div>
+            </div>
+
+            <div class="settings-content">
+                <!-- Profile Section -->
+                <section class="settings-section">
+                    <h3>Profile</h3>
+                    <div class="profile-card">
+                        <div class="profile-avatar">
+                            <img src="" alt="Your avatar" id="settings-avatar">
+                            <button class="edit-avatar-btn" onclick="app.editAvatar()">Edit</button>
+                        </div>
+                        <div class="profile-info">
+                            <input type="text" id="display-name" value="User" placeholder="Display name">
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Accessibility -->
+                <section class="settings-section">
+                    <h3>Accessibility</h3>
+                    <label class="setting-item toggle">
+                        <span>High Contrast Mode</span>
+                        <input type="checkbox" id="high-contrast-toggle" onchange="app.toggleHighContrast()">
+                        <span class="toggle-switch"></span>
+                    </label>
+                    <label class="setting-item toggle">
+                        <span>Dark Mode</span>
+                        <input type="checkbox" id="dark-mode-toggle" onchange="app.toggleDarkMode()">
+                        <span class="toggle-switch"></span>
+                    </label>
+                    <label class="setting-item toggle">
+                        <span>Reduce Motion</span>
+                        <input type="checkbox" id="reduce-motion-toggle" onchange="app.toggleReduceMotion()">
+                        <span class="toggle-switch"></span>
+                    </label>
+                    <label class="setting-item toggle">
+                        <span>Large Text</span>
+                        <input type="checkbox" id="large-text-toggle" onchange="app.toggleLargeText()">
+                        <span class="toggle-switch"></span>
+                    </label>
+                    <label class="setting-item toggle">
+                        <span>Haptic Feedback</span>
+                        <input type="checkbox" id="haptic-toggle" onchange="app.toggleHaptic()" checked>
+                        <span class="toggle-switch"></span>
+                    </label>
+                </section>
+
+                <!-- Signing Preferences -->
+                <section class="settings-section">
+                    <h3>Signing</h3>
+                    <label class="setting-item toggle">
+                        <span>Left-Handed Mode</span>
+                        <input type="checkbox" id="left-handed-setting" onchange="app.toggleLeftHanded()">
+                        <span class="toggle-switch"></span>
+                    </label>
+                    <div class="setting-item slider">
+                        <span>Avatar Speed</span>
+                        <input type="range" id="avatar-speed-setting" min="0.5" max="1.5" step="0.1" value="1">
+                    </div>
+                    <label class="setting-item toggle">
+                        <span>Show Hand Skeleton</span>
+                        <input type="checkbox" id="show-skeleton-toggle" checked>
+                        <span class="toggle-switch"></span>
+                    </label>
+                </section>
+
+                <!-- Notifications -->
+                <section class="settings-section">
+                    <h3>Notifications</h3>
+                    <label class="setting-item toggle">
+                        <span>Practice Reminders</span>
+                        <input type="checkbox" id="reminder-toggle" checked>
+                        <span class="toggle-switch"></span>
+                    </label>
+                    <label class="setting-item toggle">
+                        <span>Achievement Alerts</span>
+                        <input type="checkbox" id="achievement-toggle" checked>
+                        <span class="toggle-switch"></span>
+                    </label>
+                </section>
+
+                <!-- Data -->
+                <section class="settings-section">
+                    <h3>Data & Privacy</h3>
+                    <button class="setting-item action" onclick="app.exportData()">
+                        <span>Export My Data</span>
+                        <svg viewBox="0 0 24 24" width="20" height="20"><path d="M9 18l6-6-6-6" stroke="currentColor" stroke-width="2" fill="none"/></svg>
+                    </button>
+                    <button class="setting-item action" onclick="app.clearHistory()">
+                        <span>Clear Conversation History</span>
+                        <svg viewBox="0 0 24 24" width="20" height="20"><path d="M9 18l6-6-6-6" stroke="currentColor" stroke-width="2" fill="none"/></svg>
+                    </button>
+                    <button class="setting-item action danger" onclick="app.deleteAccount()">
+                        <span>Delete Account</span>
+                        <svg viewBox="0 0 24 24" width="20" height="20"><path d="M9 18l6-6-6-6" stroke="currentColor" stroke-width="2" fill="none"/></svg>
+                    </button>
+                </section>
+
+                <!-- About -->
+                <section class="settings-section">
+                    <h3>About</h3>
+                    <div class="about-info">
+                        <p><strong>SonZo AI</strong> v1.0.0</p>
+                        <p>Made with ❤️ for the Deaf community</p>
+                        <p class="copyright">© 2024 SonZo AI - Patent Pending</p>
+                    </div>
+                </section>
+            </div>
+        </div>
+
+        <!-- ========================================== -->
+        <!-- SIDE MENU -->
+        <!-- ========================================== -->
+
+        <div id="side-menu" class="side-menu">
+            <div class="menu-header">
+                <div class="menu-profile">
+                    <img src="" alt="Your avatar" id="menu-avatar">
+                    <div class="menu-profile-info">
+                        <span class="menu-name" id="menu-name">User</span>
+                        <span class="menu-level">Level 5 • Intermediate</span>
+                    </div>
+                </div>
+                <button class="btn-icon" onclick="app.toggleMenu()" aria-label="Close menu">
+                    <svg viewBox="0 0 24 24" width="24" height="24"><path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="2"/></svg>
+                </button>
+            </div>
+
+            <nav class="menu-nav">
+                <button class="menu-item" onclick="app.showDictionary()">
+                    <svg viewBox="0 0 24 24" width="24" height="24"><path d="M2 3h6a4 4 0 014 4v14a3 3 0 00-3-3H2zM22 3h-6a4 4 0 00-4 4v14a3 3 0 013-3h7z" stroke="currentColor" stroke-width="2" fill="none"/></svg>
+                    <span>Sign Dictionary</span>
+                </button>
+                <button class="menu-item" onclick="app.showCustomSigns()">
+                    <svg viewBox="0 0 24 24" width="24" height="24"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2"/></svg>
+                    <span>My Custom Signs</span>
+                </button>
+                <button class="menu-item" onclick="app.showDashboard()">
+                    <svg viewBox="0 0 24 24" width="24" height="24"><path d="M18 20V10M12 20V4M6 20v-6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+                    <span>Progress & Stats</span>
+                </button>
+                <button class="menu-item" onclick="app.showAchievements()">
+                    <svg viewBox="0 0 24 24" width="24" height="24"><circle cx="12" cy="8" r="6" stroke="currentColor" stroke-width="2" fill="none"/><path d="M15.477 12.89L17 22l-5-3-5 3 1.523-9.11" stroke="currentColor" stroke-width="2" fill="none"/></svg>
+                    <span>Achievements</span>
+                </button>
+                <button class="menu-item" onclick="app.showCommunity()">
+                    <svg viewBox="0 0 24 24" width="24" height="24"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2" stroke="currentColor" stroke-width="2" fill="none"/><circle cx="9" cy="7" r="4" stroke="currentColor" stroke-width="2" fill="none"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75" stroke="currentColor" stroke-width="2" fill="none"/></svg>
+                    <span>Community</span>
+                </button>
+                <button class="menu-item" onclick="app.showSettings()">
+                    <svg viewBox="0 0 24 24" width="24" height="24"><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="2" fill="none"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z" stroke="currentColor" stroke-width="2" fill="none"/></svg>
+                    <span>Settings</span>
+                </button>
+            </nav>
+
+            <div class="menu-footer">
+                <button class="menu-item" onclick="app.shareApp()">
+                    <svg viewBox="0 0 24 24" width="24" height="24"><circle cx="18" cy="5" r="3" stroke="currentColor" stroke-width="2" fill="none"/><circle cx="6" cy="12" r="3" stroke="currentColor" stroke-width="2" fill="none"/><circle cx="18" cy="19" r="3" stroke="currentColor" stroke-width="2" fill="none"/><path d="M8.59 13.51l6.83 3.98M15.41 6.51l-6.82 3.98" stroke="currentColor" stroke-width="2"/></svg>
+                    <span>Share SonZo</span>
+                </button>
+                <button class="menu-item" onclick="app.showHelp()">
+                    <svg viewBox="0 0 24 24" width="24" height="24"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2" fill="none"/><path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3M12 17h.01" stroke="currentColor" stroke-width="2" fill="none"/></svg>
+                    <span>Help & Support</span>
+                </button>
+            </div>
+        </div>
+        <div id="menu-overlay" class="menu-overlay" onclick="app.toggleMenu()"></div>
+
+        <!-- ========================================== -->
+        <!-- MODALS -->
+        <!-- ========================================== -->
+
+        <!-- Camera Modal -->
+        <div id="camera-modal" class="modal">
+            <div class="modal-content camera-modal-content">
+                <div class="modal-header">
+                    <h3>Take a Photo</h3>
+                    <button class="btn-icon" onclick="app.closeCameraModal()" aria-label="Close">
+                        <svg viewBox="0 0 24 24" width="24" height="24"><path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="2"/></svg>
+                    </button>
+                </div>
+                <div class="camera-preview-container">
+                    <video id="camera-preview" autoplay playsinline></video>
+                    <div class="face-guide"></div>
+                </div>
+                <div class="modal-actions">
+                    <button class="btn btn-secondary" onclick="app.switchCamera()">
+                        <svg viewBox="0 0 24 24" width="20" height="20"><path d="M23 4v6h-6M1 20v-6h6" stroke="currentColor" stroke-width="2" fill="none"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15" stroke="currentColor" stroke-width="2" fill="none"/></svg>
+                        Flip
+                    </button>
+                    <button class="btn btn-primary capture-btn" onclick="app.capturePhoto()">
+                        <svg viewBox="0 0 24 24" width="24" height="24"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2" fill="none"/><circle cx="12" cy="12" r="6" fill="currentColor"/></svg>
+                    </button>
+                    <div class="spacer"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Streak Modal -->
+        <div id="streak-modal" class="modal">
+            <div class="modal-content streak-modal-content">
+                <div class="streak-celebration">
+                    <span class="streak-fire">🔥</span>
+                    <span class="streak-number" id="streak-number">5</span>
+                    <span class="streak-text">Day Streak!</span>
+                </div>
+                <div class="streak-calendar" id="streak-calendar">
+                    <!-- Calendar will be generated -->
+                </div>
+                <p class="streak-motivation">Keep it up! Practice today to maintain your streak.</p>
+                <button class="btn btn-primary" onclick="app.closeStreakModal()">Let's Practice!</button>
+            </div>
+        </div>
+
+        <!-- Share Modal -->
+        <div id="share-modal" class="modal">
+            <div class="modal-content share-modal-content">
+                <h3>Share Your Signed Message</h3>
+                <video id="share-preview" controls></video>
+                <div class="share-options">
+                    <button class="share-btn instagram" onclick="app.shareToInstagram()">
+                        <svg viewBox="0 0 24 24" width="24" height="24"><rect x="2" y="2" width="20" height="20" rx="5" stroke="currentColor" stroke-width="2" fill="none"/><circle cx="12" cy="12" r="4" stroke="currentColor" stroke-width="2" fill="none"/><circle cx="17.5" cy="6.5" r="1.5" fill="currentColor"/></svg>
+                        Instagram
+                    </button>
+                    <button class="share-btn tiktok" onclick="app.shareToTikTok()">
+                        <svg viewBox="0 0 24 24" width="24" height="24"><path d="M9 12a4 4 0 104 4V4a5 5 0 005 5" stroke="currentColor" stroke-width="2" fill="none"/></svg>
+                        TikTok
+                    </button>
+                    <button class="share-btn download" onclick="app.downloadVideo()">
+                        <svg viewBox="0 0 24 24" width="24" height="24"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3" stroke="currentColor" stroke-width="2" fill="none"/></svg>
+                        Download
+                    </button>
+                </div>
+                <button class="btn btn-text" onclick="app.closeShareModal()">Cancel</button>
+            </div>
+        </div>
+
+        <!-- Toast Notifications -->
+        <div id="toast-container" class="toast-container" role="alert" aria-live="polite"></div>
+
+    </div>
+
+    <!-- Scripts -->
+    <script src="js/utils.js"></script>
+    <script src="js/storage.js"></script>
+    <script src="js/camera.js"></script>
+    <script src="js/hand-tracking.js"></script>
+    <script src="js/recognition.js"></script>
+    <script src="js/avatar.js"></script>
+    <script src="js/gamification.js"></script>
+    <script src="js/app.js"></script>
+</body>
+</html>
