@@ -1,0 +1,632 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SonZo AI - Personal Signing Avatar</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            min-height: 100vh;
+            color: #fff;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        header {
+            text-align: center;
+            padding: 40px 20px;
+        }
+
+        .logo {
+            font-size: 2.5em;
+            font-weight: bold;
+            background: linear-gradient(90deg, #00d4ff, #7c3aed);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 10px;
+        }
+
+        .tagline {
+            color: #888;
+            font-size: 1.1em;
+        }
+
+        .main-content {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 30px;
+            margin-top: 30px;
+        }
+
+        @media (max-width: 768px) {
+            .main-content {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .card {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 20px;
+            padding: 30px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .card h2 {
+            font-size: 1.3em;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .card h2 .step {
+            background: linear-gradient(90deg, #00d4ff, #7c3aed);
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.9em;
+        }
+
+        /* Upload Section */
+        .upload-area {
+            border: 2px dashed rgba(255, 255, 255, 0.3);
+            border-radius: 15px;
+            padding: 40px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .upload-area:hover {
+            border-color: #00d4ff;
+            background: rgba(0, 212, 255, 0.05);
+        }
+
+        .upload-area.has-image {
+            padding: 10px;
+        }
+
+        .upload-area img {
+            max-width: 100%;
+            max-height: 300px;
+            border-radius: 10px;
+        }
+
+        .upload-icon {
+            font-size: 3em;
+            margin-bottom: 15px;
+        }
+
+        #file-input {
+            display: none;
+        }
+
+        /* Webcam */
+        .webcam-container {
+            position: relative;
+            margin-top: 15px;
+        }
+
+        #webcam-video {
+            width: 100%;
+            border-radius: 10px;
+            display: none;
+        }
+
+        .capture-btn {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+        }
+
+        /* Buttons */
+        .btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 10px;
+            font-size: 1em;
+            cursor: pointer;
+            transition: all 0.3s;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .btn-primary {
+            background: linear-gradient(90deg, #00d4ff, #7c3aed);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(0, 212, 255, 0.3);
+        }
+
+        .btn-secondary {
+            background: rgba(255, 255, 255, 0.1);
+            color: white;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .btn-secondary:hover {
+            background: rgba(255, 255, 255, 0.2);
+        }
+
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .btn-group {
+            display: flex;
+            gap: 10px;
+            margin-top: 15px;
+        }
+
+        /* Phrase Selection */
+        .phrase-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+            gap: 10px;
+            margin-top: 15px;
+        }
+
+        .phrase-btn {
+            padding: 15px 10px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 10px;
+            color: white;
+            cursor: pointer;
+            transition: all 0.3s;
+            text-align: center;
+        }
+
+        .phrase-btn:hover {
+            background: rgba(0, 212, 255, 0.1);
+            border-color: #00d4ff;
+        }
+
+        .phrase-btn.selected {
+            background: linear-gradient(90deg, #00d4ff, #7c3aed);
+            border-color: transparent;
+        }
+
+        .phrase-btn.disabled {
+            opacity: 0.3;
+            cursor: not-allowed;
+        }
+
+        /* Video Output */
+        .video-container {
+            margin-top: 20px;
+            text-align: center;
+        }
+
+        #output-video {
+            width: 100%;
+            max-height: 400px;
+            border-radius: 15px;
+            background: #000;
+        }
+
+        /* Status Messages */
+        .status {
+            padding: 15px;
+            border-radius: 10px;
+            margin-top: 15px;
+            display: none;
+        }
+
+        .status.success {
+            background: rgba(0, 255, 100, 0.1);
+            border: 1px solid rgba(0, 255, 100, 0.3);
+            display: block;
+        }
+
+        .status.error {
+            background: rgba(255, 50, 50, 0.1);
+            border: 1px solid rgba(255, 50, 50, 0.3);
+            display: block;
+        }
+
+        .status.loading {
+            background: rgba(0, 212, 255, 0.1);
+            border: 1px solid rgba(0, 212, 255, 0.3);
+            display: block;
+        }
+
+        /* Loading Spinner */
+        .spinner {
+            width: 20px;
+            height: 20px;
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            border-top-color: #00d4ff;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            display: inline-block;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* Avatar Preview */
+        .avatar-preview {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            padding: 15px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 10px;
+            margin-top: 15px;
+        }
+
+        .avatar-preview img {
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            object-fit: cover;
+        }
+
+        .avatar-info h3 {
+            font-size: 1em;
+            margin-bottom: 5px;
+        }
+
+        .avatar-info .quality {
+            color: #00d4ff;
+            font-size: 0.9em;
+        }
+
+        /* Footer */
+        footer {
+            text-align: center;
+            padding: 40px;
+            color: #666;
+        }
+
+        footer a {
+            color: #00d4ff;
+            text-decoration: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="logo">SonZo AI</div>
+            <p class="tagline">Create Your Personal Signing Avatar</p>
+        </header>
+
+        <div class="main-content">
+            <!-- Step 1: Upload Photo -->
+            <div class="card">
+                <h2><span class="step">1</span> Upload Your Photo</h2>
+
+                <div class="upload-area" id="upload-area" onclick="document.getElementById('file-input').click()">
+                    <div class="upload-icon">📷</div>
+                    <p>Click to upload or drag & drop</p>
+                    <p style="color: #666; font-size: 0.9em; margin-top: 10px;">JPG, PNG up to 10MB</p>
+                </div>
+
+                <input type="file" id="file-input" accept="image/*" onchange="handleFileUpload(event)">
+
+                <div class="btn-group">
+                    <button class="btn btn-secondary" onclick="startWebcam()">
+                        📹 Use Webcam
+                    </button>
+                    <button class="btn btn-primary" id="create-avatar-btn" onclick="createAvatar()" disabled>
+                        Create Avatar
+                    </button>
+                </div>
+
+                <div class="webcam-container">
+                    <video id="webcam-video" autoplay playsinline></video>
+                    <button class="btn btn-primary capture-btn" id="capture-btn" onclick="captureFromWebcam()" style="display: none;">
+                        📸 Capture
+                    </button>
+                </div>
+
+                <div id="upload-status" class="status"></div>
+
+                <div class="avatar-preview" id="avatar-preview" style="display: none;">
+                    <img id="avatar-face" src="" alt="Avatar">
+                    <div class="avatar-info">
+                        <h3>Avatar Created!</h3>
+                        <p class="quality">Quality: <span id="quality-score">0%</span></p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Step 2: Select Phrase -->
+            <div class="card">
+                <h2><span class="step">2</span> Choose a Phrase to Sign</h2>
+
+                <p style="color: #888; margin-bottom: 15px;">Select what you want your avatar to sign:</p>
+
+                <div class="phrase-grid" id="phrase-grid">
+                    <!-- Populated by JS -->
+                </div>
+
+                <div class="btn-group" style="margin-top: 20px;">
+                    <button class="btn btn-primary" id="generate-btn" onclick="generateVideo()" disabled>
+                        🎬 Generate Video
+                    </button>
+                </div>
+
+                <div id="generate-status" class="status"></div>
+
+                <div class="video-container" id="video-container" style="display: none;">
+                    <video id="output-video" controls></video>
+                    <div class="btn-group" style="justify-content: center; margin-top: 15px;">
+                        <button class="btn btn-secondary" onclick="downloadVideo()">
+                            ⬇️ Download
+                        </button>
+                        <button class="btn btn-secondary" onclick="shareVideo()">
+                            📤 Share
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <footer>
+            <p>Built by <a href="https://sonzo.io">SonZo AI</a> | Patent Pending</p>
+        </footer>
+    </div>
+
+    <script>
+        // State
+        let avatarId = null;
+        let selectedPhrase = null;
+        let uploadedImage = null;
+        let webcamStream = null;
+
+        // API Base URL
+        const API_BASE = '';
+
+        // Available phrases
+        const PHRASES = [
+            { phrase: 'HELLO', category: 'GREETINGS' },
+            { phrase: 'GOODBYE', category: 'GREETINGS' },
+            { phrase: 'THANK_YOU', category: 'COMMON' },
+            { phrase: 'PLEASE', category: 'COMMON' },
+            { phrase: 'SORRY', category: 'COMMON' },
+            { phrase: 'YES', category: 'COMMON' },
+            { phrase: 'NO', category: 'COMMON' },
+            { phrase: 'HELP', category: 'COMMON' },
+            { phrase: 'I_LOVE_YOU', category: 'FEELINGS' },
+            { phrase: 'WHAT', category: 'QUESTIONS' },
+            { phrase: 'WHERE', category: 'QUESTIONS' },
+            { phrase: 'WHO', category: 'QUESTIONS' },
+            { phrase: 'WHY', category: 'QUESTIONS' },
+            { phrase: 'HOW', category: 'QUESTIONS' }
+        ];
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            renderPhrases();
+            setupDragDrop();
+        });
+
+        function renderPhrases() {
+            const grid = document.getElementById('phrase-grid');
+            grid.innerHTML = PHRASES.map(p => `
+                <div class="phrase-btn" data-phrase="${p.phrase}" onclick="selectPhrase('${p.phrase}')">
+                    ${p.phrase.replace('_', ' ')}
+                </div>
+            `).join('');
+        }
+
+        function setupDragDrop() {
+            const area = document.getElementById('upload-area');
+
+            area.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                area.style.borderColor = '#00d4ff';
+            });
+
+            area.addEventListener('dragleave', () => {
+                area.style.borderColor = 'rgba(255, 255, 255, 0.3)';
+            });
+
+            area.addEventListener('drop', (e) => {
+                e.preventDefault();
+                area.style.borderColor = 'rgba(255, 255, 255, 0.3)';
+
+                const file = e.dataTransfer.files[0];
+                if (file && file.type.startsWith('image/')) {
+                    handleFile(file);
+                }
+            });
+        }
+
+        function handleFileUpload(event) {
+            const file = event.target.files[0];
+            if (file) {
+                handleFile(file);
+            }
+        }
+
+        function handleFile(file) {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                uploadedImage = e.target.result;
+                displayUploadedImage(uploadedImage);
+            };
+            reader.readAsDataURL(file);
+        }
+
+        function displayUploadedImage(src) {
+            const area = document.getElementById('upload-area');
+            area.innerHTML = `<img src="${src}" alt="Uploaded face">`;
+            area.classList.add('has-image');
+            document.getElementById('create-avatar-btn').disabled = false;
+        }
+
+        async function startWebcam() {
+            try {
+                webcamStream = await navigator.mediaDevices.getUserMedia({ video: true });
+                const video = document.getElementById('webcam-video');
+                video.srcObject = webcamStream;
+                video.style.display = 'block';
+                document.getElementById('capture-btn').style.display = 'block';
+            } catch (err) {
+                showStatus('upload-status', 'error', 'Could not access webcam: ' + err.message);
+            }
+        }
+
+        function captureFromWebcam() {
+            const video = document.getElementById('webcam-video');
+            const canvas = document.createElement('canvas');
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            canvas.getContext('2d').drawImage(video, 0, 0);
+
+            uploadedImage = canvas.toDataURL('image/jpeg');
+            displayUploadedImage(uploadedImage);
+
+            // Stop webcam
+            if (webcamStream) {
+                webcamStream.getTracks().forEach(track => track.stop());
+            }
+            video.style.display = 'none';
+            document.getElementById('capture-btn').style.display = 'none';
+        }
+
+        async function createAvatar() {
+            if (!uploadedImage) return;
+
+            showStatus('upload-status', 'loading', '<span class="spinner"></span> Creating avatar...');
+            document.getElementById('create-avatar-btn').disabled = true;
+
+            try {
+                const response = await fetch(`${API_BASE}/api/avatar/create`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ photo: uploadedImage })
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.detail?.message || data.detail || 'Failed to create avatar');
+                }
+
+                avatarId = data.avatar_id;
+
+                // Show avatar preview
+                document.getElementById('avatar-preview').style.display = 'flex';
+                document.getElementById('avatar-face').src = uploadedImage;
+                document.getElementById('quality-score').textContent = `${(data.quality_score * 100).toFixed(0)}%`;
+
+                showStatus('upload-status', 'success', '✓ Avatar created successfully!');
+                document.getElementById('generate-btn').disabled = false;
+
+            } catch (err) {
+                showStatus('upload-status', 'error', '✗ ' + err.message);
+                document.getElementById('create-avatar-btn').disabled = false;
+            }
+        }
+
+        function selectPhrase(phrase) {
+            selectedPhrase = phrase;
+
+            // Update UI
+            document.querySelectorAll('.phrase-btn').forEach(btn => {
+                btn.classList.remove('selected');
+                if (btn.dataset.phrase === phrase) {
+                    btn.classList.add('selected');
+                }
+            });
+
+            // Enable generate button if avatar exists
+            if (avatarId) {
+                document.getElementById('generate-btn').disabled = false;
+            }
+        }
+
+        async function generateVideo() {
+            if (!avatarId || !selectedPhrase) return;
+
+            showStatus('generate-status', 'loading', '<span class="spinner"></span> Generating video... This may take 30-60 seconds.');
+            document.getElementById('generate-btn').disabled = true;
+            document.getElementById('video-container').style.display = 'none';
+
+            try {
+                const response = await fetch(`${API_BASE}/api/avatar/${avatarId}/sign`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ phrase: selectedPhrase })
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.detail?.message || data.detail || 'Failed to generate video');
+                }
+
+                // Show video
+                const video = document.getElementById('output-video');
+                video.src = data.video_url;
+                document.getElementById('video-container').style.display = 'block';
+
+                showStatus('generate-status', 'success', `✓ Video generated in ${data.processing_time.toFixed(1)}s`);
+
+            } catch (err) {
+                showStatus('generate-status', 'error', '✗ ' + err.message);
+            } finally {
+                document.getElementById('generate-btn').disabled = false;
+            }
+        }
+
+        function downloadVideo() {
+            const video = document.getElementById('output-video');
+            if (video.src) {
+                const a = document.createElement('a');
+                a.href = video.src;
+                a.download = `${selectedPhrase}_avatar.mp4`;
+                a.click();
+            }
+        }
+
+        function shareVideo() {
+            const video = document.getElementById('output-video');
+            if (navigator.share && video.src) {
+                navigator.share({
+                    title: 'My Signing Avatar',
+                    text: `Watch me sign "${selectedPhrase}"!`,
+                    url: video.src
+                });
+            } else {
+                // Fallback: copy URL
+                navigator.clipboard.writeText(window.location.origin + video.src);
+                alert('Video URL copied to clipboard!');
+            }
+        }
+
+        function showStatus(elementId, type, message) {
+            const el = document.getElementById(elementId);
+            el.className = `status ${type}`;
+            el.innerHTML = message;
+        }
+    </script>
+</body>
+</html>

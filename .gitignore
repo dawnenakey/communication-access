@@ -76,6 +76,11 @@ agenthub/agents/youtube/db
 # Build caches
 .cache/
 
+# ML Models (download with setup scripts)
+avatar/models/
+*.onnx
+*.pth
+
 # Mobile development
 android-sdk/ -e 
 # Environment files
