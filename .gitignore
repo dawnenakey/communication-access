@@ -81,6 +81,11 @@ avatar/models/
 *.onnx
 *.pth
 
+# Training data (large files, download separately)
+data/
+wlasl_prepared/
+sentence_data/
+
 # Mobile development
 android-sdk/ -e 
 # Environment files
