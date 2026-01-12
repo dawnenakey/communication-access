@@ -1,0 +1,627 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'SignedWord - ASL Bible Devotions App Infrastructure'
+
+Parameters:
+  Environment:
+    Type: String
+    Default: production
+    AllowedValues:
+      - development
+      - staging
+      - production
+    Description: Deployment environment
+
+  EC2KeyPair:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: SSH key pair for EC2 access
+
+  DomainName:
+    Type: String
+    Default: signedword.sonzo.io
+    Description: Domain name for the application
+
+  ContactEmail:
+    Type: String
+    Default: dawnena@sonzo.io
+    Description: Contact email for notifications
+
+  MongoDBConnectionString:
+    Type: String
+    NoEcho: true
+    Description: MongoDB connection string (use existing SonZo cluster)
+
+  SonZoSLRBucketName:
+    Type: String
+    Default: sonzo-slr-training
+    Description: SonZo SLR training bucket for data pipeline
+
+Resources:
+  # =============================================================================
+  # VPC & NETWORKING (using default VPC for simplicity)
+  # =============================================================================
+
+  EC2SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: SignedWord API Server Security Group
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0  # Restrict in production
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 3000
+          ToPort: 3000
+          CidrIp: 0.0.0.0/0  # Node.js app port
+      Tags:
+        - Key: Name
+          Value: !Sub 'signedword-sg-${Environment}'
+        - Key: Project
+          Value: SignedWord
+
+  # =============================================================================
+  # EC2 INSTANCE
+  # =============================================================================
+
+  EC2Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t3.medium
+      ImageId: !FindInMap [RegionAMI, !Ref 'AWS::Region', AMI]
+      KeyName: !Ref EC2KeyPair
+      SecurityGroups:
+        - !Ref EC2SecurityGroup
+      IamInstanceProfile: !Ref EC2InstanceProfile
+      BlockDeviceMappings:
+        - DeviceName: /dev/sda1
+          Ebs:
+            VolumeSize: 30
+            VolumeType: gp3
+            DeleteOnTermination: true
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -e
+
+          # Update system
+          apt-get update && apt-get upgrade -y
+
+          # Install Node.js 20 LTS
+          curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+          apt-get install -y nodejs
+
+          # Install PM2 for process management
+          npm install -g pm2
+
+          # Install nginx for reverse proxy
+          apt-get install -y nginx certbot python3-certbot-nginx
+
+          # Install AWS CLI
+          apt-get install -y awscli
+
+          # Create app directory
+          mkdir -p /opt/signedword
+          chown ubuntu:ubuntu /opt/signedword
+
+          # Create environment file
+          cat > /opt/signedword/.env << 'EOF'
+          NODE_ENV=${Environment}
+          PORT=3000
+          MONGODB_URI=${MongoDBConnectionString}
+          AWS_REGION=${AWS::Region}
+          S3_CONTENT_BUCKET=${ContentBucket}
+          S3_USER_DATA_BUCKET=${UserDataBucket}
+          CLOUDFRONT_URL=https://${CloudFrontDistribution.DomainName}
+          JWT_SECRET=$(openssl rand -hex 32)
+          EOF
+
+          # Signal completion
+          /opt/aws/bin/cfn-signal -e $? --stack ${AWS::StackName} --resource EC2Instance --region ${AWS::Region}
+      Tags:
+        - Key: Name
+          Value: !Sub 'signedword-api-${Environment}'
+        - Key: Project
+          Value: SignedWord
+    CreationPolicy:
+      ResourceSignal:
+        Timeout: PT10M
+
+  EC2ElasticIP:
+    Type: AWS::EC2::EIP
+    Properties:
+      InstanceId: !Ref EC2Instance
+      Tags:
+        - Key: Name
+          Value: !Sub 'signedword-eip-${Environment}'
+
+  # =============================================================================
+  # IAM ROLES & POLICIES
+  # =============================================================================
+
+  EC2Role:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub 'signedword-ec2-role-${Environment}'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy
+      Policies:
+        - PolicyName: SignedWordS3Access
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:DeleteObject
+                  - s3:ListBucket
+                Resource:
+                  - !GetAtt ContentBucket.Arn
+                  - !Sub '${ContentBucket.Arn}/*'
+                  - !GetAtt UserDataBucket.Arn
+                  - !Sub '${UserDataBucket.Arn}/*'
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                Resource:
+                  - !Sub 'arn:aws:s3:::${SonZoSLRBucketName}/*'
+
+  EC2InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref EC2Role
+
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub 'signedword-lambda-role-${Environment}'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: SignedWordLambdaS3Access
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:CopyObject
+                Resource:
+                  - !Sub '${UserDataBucket.Arn}/*'
+                  - !Sub 'arn:aws:s3:::${SonZoSLRBucketName}/*'
+              - Effect: Allow
+                Action:
+                  - s3:ListBucket
+                Resource:
+                  - !GetAtt UserDataBucket.Arn
+                  - !Sub 'arn:aws:s3:::${SonZoSLRBucketName}'
+
+  # =============================================================================
+  # S3 BUCKETS
+  # =============================================================================
+
+  ContentBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub 'signedword-content-${AWS::AccountId}'
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      CorsConfiguration:
+        CorsRules:
+          - AllowedHeaders: ['*']
+            AllowedMethods: [GET, HEAD]
+            AllowedOrigins: ['*']
+            MaxAge: 3600
+      LifecycleConfiguration:
+        Rules:
+          - Id: TransitionToIA
+            Status: Enabled
+            Transitions:
+              - StorageClass: STANDARD_IA
+                TransitionInDays: 90
+      Tags:
+        - Key: Project
+          Value: SignedWord
+        - Key: Purpose
+          Value: Devotional video content
+
+  ContentBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref ContentBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Action: s3:GetObject
+            Resource: !Sub '${ContentBucket.Arn}/*'
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Sub 'arn:aws:cloudfront::${AWS::AccountId}:distribution/${CloudFrontDistribution}'
+
+  UserDataBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub 'signedword-user-data-${AWS::AccountId}'
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      CorsConfiguration:
+        CorsRules:
+          - AllowedHeaders: ['*']
+            AllowedMethods: [GET, PUT, POST]
+            AllowedOrigins: ['*']
+            MaxAge: 3600
+      NotificationConfiguration:
+        LambdaConfigurations:
+          - Event: s3:ObjectCreated:*
+            Filter:
+              S3Key:
+                Rules:
+                  - Name: prefix
+                    Value: uploads/
+            Function: !GetAtt VideoProcessingLambda.Arn
+      Tags:
+        - Key: Project
+          Value: SignedWord
+        - Key: Purpose
+          Value: User uploaded content
+
+  # =============================================================================
+  # CLOUDFRONT DISTRIBUTION
+  # =============================================================================
+
+  CloudFrontOriginAccessControl:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: !Sub 'signedword-oac-${Environment}'
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  CloudFrontDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        Comment: !Sub 'SignedWord Content CDN - ${Environment}'
+        DefaultRootObject: index.html
+        PriceClass: PriceClass_100  # US, Canada, Europe
+        Origins:
+          - Id: S3ContentOrigin
+            DomainName: !GetAtt ContentBucket.RegionalDomainName
+            OriginAccessControlId: !Ref CloudFrontOriginAccessControl
+            S3OriginConfig:
+              OriginAccessIdentity: ''
+        DefaultCacheBehavior:
+          TargetOriginId: S3ContentOrigin
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods:
+            - GET
+            - HEAD
+            - OPTIONS
+          CachedMethods:
+            - GET
+            - HEAD
+          Compress: true
+          CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6  # Managed-CachingOptimized
+        CacheBehaviors:
+          - PathPattern: '/videos/*'
+            TargetOriginId: S3ContentOrigin
+            ViewerProtocolPolicy: redirect-to-https
+            AllowedMethods:
+              - GET
+              - HEAD
+            CachedMethods:
+              - GET
+              - HEAD
+            Compress: false  # Videos already compressed
+            CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6
+        ViewerCertificate:
+          CloudFrontDefaultCertificate: true
+          # For custom domain, use ACM certificate:
+          # AcmCertificateArn: !Ref SSLCertificate
+          # SslSupportMethod: sni-only
+          # MinimumProtocolVersion: TLSv1.2_2021
+      Tags:
+        - Key: Project
+          Value: SignedWord
+
+  # =============================================================================
+  # LAMBDA FUNCTIONS
+  # =============================================================================
+
+  VideoProcessingLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub 'signedword-video-processor-${Environment}'
+      Runtime: python3.11
+      Handler: index.handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Timeout: 300
+      MemorySize: 512
+      Environment:
+        Variables:
+          SONZO_SLR_BUCKET: !Ref SonZoSLRBucketName
+          ENVIRONMENT: !Ref Environment
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          import os
+          from datetime import datetime
+          from urllib.parse import unquote_plus
+
+          s3 = boto3.client('s3')
+
+          def handler(event, context):
+              """
+              Process uploaded videos from SignedWord users.
+              Adds metadata and prepares for SonZo SLR training pipeline.
+              """
+              for record in event['Records']:
+                  bucket = record['s3']['bucket']['name']
+                  key = unquote_plus(record['s3']['object']['key'])
+
+                  print(f"Processing: s3://{bucket}/{key}")
+
+                  # Get existing metadata
+                  try:
+                      response = s3.head_object(Bucket=bucket, Key=key)
+                      existing_metadata = response.get('Metadata', {})
+                  except Exception as e:
+                      print(f"Error getting metadata: {e}")
+                      existing_metadata = {}
+
+                  # Add SignedWord metadata
+                  new_metadata = {
+                      **existing_metadata,
+                      'source': 'signedword',
+                      'processed_at': datetime.utcnow().isoformat(),
+                      'consent_flag': existing_metadata.get('consent', 'pending'),
+                      'prompt_id': existing_metadata.get('prompt_id', 'unknown'),
+                  }
+
+                  # Copy with updated metadata (S3 requires copy to update metadata)
+                  s3.copy_object(
+                      Bucket=bucket,
+                      Key=key,
+                      CopySource={'Bucket': bucket, 'Key': key},
+                      Metadata=new_metadata,
+                      MetadataDirective='REPLACE'
+                  )
+
+                  print(f"Updated metadata for {key}")
+
+              return {
+                  'statusCode': 200,
+                  'body': json.dumps('Processing complete')
+              }
+      Tags:
+        - Key: Project
+          Value: SignedWord
+
+  VideoProcessingLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref VideoProcessingLambda
+      Action: lambda:InvokeFunction
+      Principal: s3.amazonaws.com
+      SourceArn: !GetAtt UserDataBucket.Arn
+
+  # Nightly sync to SonZo SLR training bucket
+  SyncToSonZoLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub 'signedword-sonzo-sync-${Environment}'
+      Runtime: python3.11
+      Handler: index.handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Timeout: 900  # 15 minutes for batch processing
+      MemorySize: 1024
+      Environment:
+        Variables:
+          SOURCE_BUCKET: !Ref UserDataBucket
+          DEST_BUCKET: !Ref SonZoSLRBucketName
+          ENVIRONMENT: !Ref Environment
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          import os
+          from datetime import datetime, timedelta
+
+          s3 = boto3.client('s3')
+
+          def handler(event, context):
+              """
+              Nightly sync of consented user videos to SonZo SLR training bucket.
+              Only syncs videos with consent_flag = 'granted'.
+              """
+              source_bucket = os.environ['SOURCE_BUCKET']
+              dest_bucket = os.environ['DEST_BUCKET']
+
+              synced = 0
+              skipped = 0
+
+              # List objects in uploads/ prefix
+              paginator = s3.get_paginator('list_objects_v2')
+
+              for page in paginator.paginate(Bucket=source_bucket, Prefix='uploads/'):
+                  for obj in page.get('Contents', []):
+                      key = obj['Key']
+
+                      # Check metadata for consent
+                      try:
+                          response = s3.head_object(Bucket=source_bucket, Key=key)
+                          metadata = response.get('Metadata', {})
+
+                          if metadata.get('consent_flag') != 'granted':
+                              skipped += 1
+                              continue
+
+                          if metadata.get('synced_to_sonzo') == 'true':
+                              continue  # Already synced
+
+                          # Copy to SonZo bucket
+                          dest_key = f"signedword/{datetime.utcnow().strftime('%Y/%m/%d')}/{key.split('/')[-1]}"
+
+                          s3.copy_object(
+                              Bucket=dest_bucket,
+                              Key=dest_key,
+                              CopySource={'Bucket': source_bucket, 'Key': key},
+                              Metadata={
+                                  **metadata,
+                                  'original_bucket': source_bucket,
+                                  'original_key': key,
+                                  'synced_at': datetime.utcnow().isoformat()
+                              },
+                              MetadataDirective='REPLACE'
+                          )
+
+                          # Mark as synced in source
+                          s3.copy_object(
+                              Bucket=source_bucket,
+                              Key=key,
+                              CopySource={'Bucket': source_bucket, 'Key': key},
+                              Metadata={**metadata, 'synced_to_sonzo': 'true'},
+                              MetadataDirective='REPLACE'
+                          )
+
+                          synced += 1
+                          print(f"Synced: {key} -> {dest_key}")
+
+                      except Exception as e:
+                          print(f"Error processing {key}: {e}")
+
+              result = {
+                  'synced': synced,
+                  'skipped': skipped,
+                  'timestamp': datetime.utcnow().isoformat()
+              }
+
+              print(f"Sync complete: {result}")
+
+              return {
+                  'statusCode': 200,
+                  'body': json.dumps(result)
+              }
+      Tags:
+        - Key: Project
+          Value: SignedWord
+
+  # EventBridge rule for nightly sync
+  NightlySyncRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub 'signedword-nightly-sync-${Environment}'
+      Description: Nightly sync of SignedWord user data to SonZo SLR
+      ScheduleExpression: 'cron(0 4 * * ? *)'  # 4 AM UTC daily
+      State: ENABLED
+      Targets:
+        - Id: SyncToSonZoLambda
+          Arn: !GetAtt SyncToSonZoLambda.Arn
+
+  NightlySyncPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref SyncToSonZoLambda
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt NightlySyncRule.Arn
+
+# =============================================================================
+# MAPPINGS
+# =============================================================================
+
+Mappings:
+  RegionAMI:
+    us-east-1:
+      AMI: ami-0c7217cdde317cfec  # Ubuntu 22.04 LTS
+    us-east-2:
+      AMI: ami-05fb0b8c1424f266b
+    us-west-1:
+      AMI: ami-0ce2cb35386fc22e9
+    us-west-2:
+      AMI: ami-008fe2fc65df48dac
+    eu-west-1:
+      AMI: ami-0905a3c97561e0b69
+
+# =============================================================================
+# OUTPUTS
+# =============================================================================
+
+Outputs:
+  EC2PublicIP:
+    Description: Public IP of the API server
+    Value: !Ref EC2ElasticIP
+    Export:
+      Name: !Sub '${AWS::StackName}-EC2PublicIP'
+
+  EC2InstanceId:
+    Description: EC2 Instance ID
+    Value: !Ref EC2Instance
+    Export:
+      Name: !Sub '${AWS::StackName}-EC2InstanceId'
+
+  ContentBucketName:
+    Description: S3 bucket for devotional content
+    Value: !Ref ContentBucket
+    Export:
+      Name: !Sub '${AWS::StackName}-ContentBucket'
+
+  UserDataBucketName:
+    Description: S3 bucket for user uploads
+    Value: !Ref UserDataBucket
+    Export:
+      Name: !Sub '${AWS::StackName}-UserDataBucket'
+
+  CloudFrontURL:
+    Description: CloudFront distribution URL
+    Value: !Sub 'https://${CloudFrontDistribution.DomainName}'
+    Export:
+      Name: !Sub '${AWS::StackName}-CloudFrontURL'
+
+  CloudFrontDistributionId:
+    Description: CloudFront distribution ID
+    Value: !Ref CloudFrontDistribution
+    Export:
+      Name: !Sub '${AWS::StackName}-CloudFrontDistributionId'
+
+  APIEndpoint:
+    Description: API server endpoint
+    Value: !Sub 'http://${EC2ElasticIP}:3000'
+    Export:
+      Name: !Sub '${AWS::StackName}-APIEndpoint'
