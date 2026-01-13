@@ -91,7 +91,8 @@ class TrainingConfig:
     # Training
     batch_size: int = 16
     epochs: int = 100
-    learning_rate: float = 1e-4
+    learning_rate: float = 1e-3  # Base learning rate (10x higher for training from scratch)
+    max_lr: float = 3e-3  # Peak learning rate for OneCycleLR scheduler
     weight_decay: float = 1e-4
     warmup_epochs: int = 5
 
@@ -521,13 +522,16 @@ class Trainer:
             weight_decay=config.weight_decay
         )
 
-        # Scheduler
+        # Scheduler - OneCycleLR cycles from base_lr -> max_lr -> final_lr
+        # The optimizer's lr is the starting point, max_lr is the peak
         self.scheduler = OneCycleLR(
             self.optimizer,
-            max_lr=config.learning_rate,
+            max_lr=config.max_lr,  # Peak learning rate (higher than base)
             epochs=config.epochs,
             steps_per_epoch=len(self.train_loader),
-            pct_start=config.warmup_epochs / config.epochs
+            pct_start=config.warmup_epochs / config.epochs,
+            div_factor=config.max_lr / config.learning_rate,  # Start at base_lr
+            final_div_factor=100  # End at max_lr / 100
         )
 
         # Loss function
@@ -744,8 +748,10 @@ def main():
                        help='Number of training epochs')
     parser.add_argument('--batch-size', type=int, default=16,
                        help='Batch size')
-    parser.add_argument('--lr', type=float, default=1e-4,
-                       help='Learning rate')
+    parser.add_argument('--lr', type=float, default=1e-3,
+                       help='Base learning rate')
+    parser.add_argument('--max-lr', type=float, default=3e-3,
+                       help='Peak learning rate for OneCycleLR scheduler')
     parser.add_argument('--sequence-length', type=int, default=16,
                        help='Number of frames per sequence')
     parser.add_argument('--image-size', type=int, default=224,
@@ -765,6 +771,7 @@ def main():
         epochs=args.epochs,
         batch_size=args.batch_size,
         learning_rate=args.lr,
+        max_lr=args.max_lr,
         sequence_length=args.sequence_length,
         image_size=args.image_size,
         resume_from=args.resume,
