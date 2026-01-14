@@ -321,18 +321,35 @@ def extract_wlasl_landmarks(
         "glosses": {}
     }
 
-    # Group by gloss
-    videos_by_gloss = {}
-    for video_id, video_info in metadata.items():
-        gloss = video_info.get("gloss", "unknown")
-        if gloss not in videos_by_gloss:
-            videos_by_gloss[gloss] = []
-        videos_by_gloss[gloss].append((video_id, video_info))
+    # Handle WLASL metadata format with "videos" list
+    if "videos" in metadata:
+        # New format: {"gloss_to_idx": {...}, "videos": [...]}
+        videos_list = metadata["videos"]
+        label_map = metadata.get("gloss_to_idx", {})
 
-    logger.info(f"Processing {len(metadata)} videos across {len(videos_by_gloss)} glosses")
+        # Group by gloss
+        videos_by_gloss = {}
+        for video_info in videos_list:
+            gloss = video_info.get("gloss", "unknown")
+            video_id = video_info.get("video_id", "")
+            if gloss not in videos_by_gloss:
+                videos_by_gloss[gloss] = []
+            videos_by_gloss[gloss].append((video_id, video_info))
 
-    # Build label map
-    label_map = {gloss: idx for idx, gloss in enumerate(sorted(videos_by_gloss.keys()))}
+        logger.info(f"Processing {len(videos_list)} videos across {len(videos_by_gloss)} glosses")
+    else:
+        # Old format: {video_id: video_info, ...}
+        videos_by_gloss = {}
+        for video_id, video_info in metadata.items():
+            if isinstance(video_info, dict):
+                gloss = video_info.get("gloss", "unknown")
+                if gloss not in videos_by_gloss:
+                    videos_by_gloss[gloss] = []
+                videos_by_gloss[gloss].append((video_id, video_info))
+
+        logger.info(f"Processing {len(metadata)} videos across {len(videos_by_gloss)} glosses")
+        # Build label map
+        label_map = {gloss: idx for idx, gloss in enumerate(sorted(videos_by_gloss.keys()))}
 
     # Process videos
     all_samples = []
@@ -369,11 +386,12 @@ def extract_wlasl_landmarks(
             output_path = gloss_dir / f"{video_id}.npy"
             np.save(output_path, landmarks)
 
-            # Record sample
+            # Record sample - use label from video_info if available, otherwise from label_map
+            sample_label = video_info.get("label", label_map.get(gloss, 0))
             all_samples.append({
                 "video_id": video_id,
                 "gloss": gloss,
-                "label": label_map[gloss],
+                "label": sample_label,
                 "landmarks_path": str(output_path.relative_to(output_dir)),
                 "num_frames": len(landmarks),
                 "feature_dim": extractor.feature_dim
