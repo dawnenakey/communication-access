@@ -321,8 +321,30 @@ def extract_wlasl_landmarks(
         "glosses": {}
     }
 
-    # Handle WLASL metadata format with "videos" list
-    if "videos" in metadata:
+    # Handle WLASL metadata format with train/val/test splits
+    if "train" in metadata:
+        # Format: {"gloss_to_idx": {...}, "train": [...], "val": [...], "test": [...]}
+        label_map = metadata.get("gloss_to_idx", {})
+
+        # Combine all splits with split info preserved
+        all_videos = []
+        for split in ["train", "val", "test"]:
+            for video_info in metadata.get(split, []):
+                video_info["split"] = split
+                all_videos.append(video_info)
+
+        # Group by gloss
+        videos_by_gloss = {}
+        for video_info in all_videos:
+            gloss = video_info.get("gloss", "unknown")
+            video_id = video_info.get("video_id", "")
+            if gloss not in videos_by_gloss:
+                videos_by_gloss[gloss] = []
+            videos_by_gloss[gloss].append((video_id, video_info))
+
+        logger.info(f"Processing {len(all_videos)} videos across {len(videos_by_gloss)} glosses")
+        logger.info(f"  Train: {len(metadata.get('train', []))}, Val: {len(metadata.get('val', []))}, Test: {len(metadata.get('test', []))}")
+    elif "videos" in metadata:
         # New format: {"gloss_to_idx": {...}, "videos": [...]}
         videos_list = metadata["videos"]
         label_map = metadata.get("gloss_to_idx", {})
@@ -388,13 +410,15 @@ def extract_wlasl_landmarks(
 
             # Record sample - use label from video_info if available, otherwise from label_map
             sample_label = video_info.get("label", label_map.get(gloss, 0))
+            sample_split = video_info.get("split", None)  # Preserve original split if available
             all_samples.append({
                 "video_id": video_id,
                 "gloss": gloss,
                 "label": sample_label,
                 "landmarks_path": str(output_path.relative_to(output_dir)),
                 "num_frames": len(landmarks),
-                "feature_dim": extractor.feature_dim
+                "feature_dim": extractor.feature_dim,
+                "split": sample_split
             })
 
             stats["success"] += 1
@@ -402,25 +426,34 @@ def extract_wlasl_landmarks(
 
     extractor.close()
 
-    # Split into train/val/test
-    np.random.seed(42)
-    np.random.shuffle(all_samples)
+    # Check if splits are already assigned (from metadata)
+    has_splits = any(s.get("split") is not None for s in all_samples)
 
-    n_total = len(all_samples)
-    n_train = int(0.8 * n_total)
-    n_val = int(0.1 * n_total)
+    if has_splits:
+        # Use pre-existing splits from metadata
+        train_samples = [s for s in all_samples if s.get("split") == "train"]
+        val_samples = [s for s in all_samples if s.get("split") == "val"]
+        test_samples = [s for s in all_samples if s.get("split") == "test"]
+    else:
+        # Split into train/val/test randomly
+        np.random.seed(42)
+        np.random.shuffle(all_samples)
 
-    train_samples = all_samples[:n_train]
-    val_samples = all_samples[n_train:n_train+n_val]
-    test_samples = all_samples[n_train+n_val:]
+        n_total = len(all_samples)
+        n_train = int(0.8 * n_total)
+        n_val = int(0.1 * n_total)
 
-    # Assign splits
-    for s in train_samples:
-        s["split"] = "train"
-    for s in val_samples:
-        s["split"] = "val"
-    for s in test_samples:
-        s["split"] = "test"
+        train_samples = all_samples[:n_train]
+        val_samples = all_samples[n_train:n_train+n_val]
+        test_samples = all_samples[n_train+n_val:]
+
+        # Assign splits
+        for s in train_samples:
+            s["split"] = "train"
+        for s in val_samples:
+            s["split"] = "val"
+        for s in test_samples:
+            s["split"] = "test"
 
     all_samples = train_samples + val_samples + test_samples
 
