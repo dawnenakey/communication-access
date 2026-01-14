@@ -1,0 +1,545 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SonZo AI - Sign Language Recognition Demo</title>
+    <link rel="icon" href="/favicon.ico" type="image/x-icon">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Playfair+Display:wght@700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --red: #EF3340;
+            --yellow: #FFD700;
+            --black: #1a1a1a;
+            --white: #FFFFFF;
+            --cream: #faf9f7;
+            --gray: #6b7280;
+            --green: #10B981;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Inter', -apple-system, sans-serif;
+            background: linear-gradient(135deg, var(--black) 0%, #2d2d2d 100%);
+            color: var(--white);
+            min-height: 100vh;
+        }
+
+        .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
+
+        nav {
+            padding: 15px 0;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+            margin-bottom: 30px;
+        }
+
+        .nav-inner {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .logo {
+            font-family: 'Playfair Display', serif;
+            font-size: 1.8rem;
+            color: var(--white);
+            text-decoration: none;
+        }
+
+        .logo span { color: var(--red); }
+
+        .badge {
+            background: var(--red);
+            color: white;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+
+        h1 {
+            font-family: 'Playfair Display', serif;
+            font-size: 2rem;
+            margin-bottom: 10px;
+        }
+
+        .subtitle {
+            color: var(--gray);
+            margin-bottom: 30px;
+        }
+
+        .main-grid {
+            display: grid;
+            grid-template-columns: 1fr 400px;
+            gap: 30px;
+        }
+
+        @media (max-width: 900px) {
+            .main-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .video-section {
+            background: rgba(255,255,255,0.05);
+            border-radius: 16px;
+            padding: 20px;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+
+        .video-container {
+            position: relative;
+            background: #000;
+            border-radius: 12px;
+            overflow: hidden;
+            aspect-ratio: 4/3;
+        }
+
+        #webcam {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transform: scaleX(-1);
+        }
+
+        .video-overlay {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            padding: 20px;
+            background: linear-gradient(transparent, rgba(0,0,0,0.8));
+        }
+
+        .current-sign {
+            font-size: 2.5rem;
+            font-weight: 700;
+            color: var(--yellow);
+            text-shadow: 0 2px 10px rgba(0,0,0,0.5);
+        }
+
+        .confidence-bar {
+            height: 4px;
+            background: rgba(255,255,255,0.2);
+            border-radius: 2px;
+            margin-top: 10px;
+            overflow: hidden;
+        }
+
+        .confidence-fill {
+            height: 100%;
+            background: var(--green);
+            transition: width 0.3s ease;
+        }
+
+        .controls {
+            display: flex;
+            gap: 10px;
+            margin-top: 20px;
+        }
+
+        .btn {
+            flex: 1;
+            padding: 12px 20px;
+            border: none;
+            border-radius: 8px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn-primary {
+            background: var(--red);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #d62d39;
+            transform: translateY(-1px);
+        }
+
+        .btn-secondary {
+            background: rgba(255,255,255,0.1);
+            color: white;
+            border: 1px solid rgba(255,255,255,0.2);
+        }
+
+        .btn-secondary:hover {
+            background: rgba(255,255,255,0.15);
+        }
+
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .results-section {
+            background: rgba(255,255,255,0.05);
+            border-radius: 16px;
+            padding: 20px;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+
+        .section-title {
+            font-size: 1rem;
+            font-weight: 600;
+            margin-bottom: 15px;
+            color: var(--gray);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .predictions-list {
+            list-style: none;
+        }
+
+        .prediction-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 0;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+        }
+
+        .prediction-item:last-child {
+            border-bottom: none;
+        }
+
+        .prediction-sign {
+            font-weight: 600;
+            font-size: 1.1rem;
+        }
+
+        .prediction-confidence {
+            background: rgba(255,255,255,0.1);
+            padding: 4px 10px;
+            border-radius: 4px;
+            font-size: 0.9rem;
+        }
+
+        .transcript {
+            background: rgba(0,0,0,0.3);
+            border-radius: 8px;
+            padding: 15px;
+            min-height: 100px;
+            max-height: 200px;
+            overflow-y: auto;
+            margin-top: 20px;
+        }
+
+        .transcript-text {
+            font-size: 1.2rem;
+            line-height: 1.6;
+            word-wrap: break-word;
+        }
+
+        .status {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-top: 20px;
+            padding: 10px;
+            background: rgba(0,0,0,0.2);
+            border-radius: 8px;
+            font-size: 0.9rem;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--green);
+            animation: pulse 2s infinite;
+        }
+
+        .status-dot.disconnected {
+            background: var(--red);
+            animation: none;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .latency {
+            margin-left: auto;
+            color: var(--gray);
+        }
+
+        .glossary-section {
+            margin-top: 20px;
+            padding-top: 20px;
+            border-top: 1px solid rgba(255,255,255,0.1);
+        }
+
+        .glossary-grid {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            max-height: 150px;
+            overflow-y: auto;
+        }
+
+        .glossary-item {
+            background: rgba(255,255,255,0.05);
+            padding: 4px 10px;
+            border-radius: 4px;
+            font-size: 0.8rem;
+        }
+
+        .footer {
+            text-align: center;
+            padding: 30px;
+            color: var(--gray);
+            font-size: 0.9rem;
+        }
+
+        .footer a {
+            color: var(--red);
+            text-decoration: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <nav>
+            <div class="nav-inner">
+                <a href="https://sonzo.io" class="logo">Son<span>Zo</span></a>
+                <span class="badge">LIVE DEMO</span>
+            </div>
+        </nav>
+
+        <h1>Sign Language Recognition</h1>
+        <p class="subtitle">Real-time ASL recognition powered by landmark-based AI</p>
+
+        <div class="main-grid">
+            <div class="video-section">
+                <div class="video-container">
+                    <video id="webcam" autoplay playsinline></video>
+                    <div class="video-overlay">
+                        <div class="current-sign" id="currentSign">Ready</div>
+                        <div class="confidence-bar">
+                            <div class="confidence-fill" id="confidenceFill" style="width: 0%"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="controls">
+                    <button class="btn btn-primary" id="startBtn" onclick="toggleCamera()">
+                        Start Camera
+                    </button>
+                    <button class="btn btn-secondary" id="clearBtn" onclick="clearTranscript()" disabled>
+                        Clear
+                    </button>
+                </div>
+
+                <div class="status">
+                    <div class="status-dot" id="statusDot"></div>
+                    <span id="statusText">Disconnected</span>
+                    <span class="latency" id="latency"></span>
+                </div>
+            </div>
+
+            <div class="results-section">
+                <div class="section-title">Top Predictions</div>
+                <ul class="predictions-list" id="predictionsList">
+                    <li class="prediction-item">
+                        <span class="prediction-sign">-</span>
+                        <span class="prediction-confidence">-</span>
+                    </li>
+                </ul>
+
+                <div class="section-title" style="margin-top: 20px;">Transcript</div>
+                <div class="transcript">
+                    <p class="transcript-text" id="transcript">Signs will appear here...</p>
+                </div>
+
+                <div class="glossary-section">
+                    <div class="section-title">Supported Signs</div>
+                    <div class="glossary-grid" id="glossaryGrid">
+                        Loading...
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="footer">
+            <p>Powered by <a href="https://sonzo.io">SonZo AI</a> | Patent Pending</p>
+        </div>
+    </div>
+
+    <script>
+        // Configuration
+        const API_URL = window.location.hostname === 'localhost'
+            ? 'http://localhost:8082'
+            : 'https://api.sonzo.io';
+
+        // State
+        let stream = null;
+        let isRunning = false;
+        let transcript = [];
+        let lastSign = null;
+        let recognitionInterval = null;
+
+        // Elements
+        const webcam = document.getElementById('webcam');
+        const startBtn = document.getElementById('startBtn');
+        const clearBtn = document.getElementById('clearBtn');
+        const currentSign = document.getElementById('currentSign');
+        const confidenceFill = document.getElementById('confidenceFill');
+        const predictionsList = document.getElementById('predictionsList');
+        const transcriptEl = document.getElementById('transcript');
+        const statusDot = document.getElementById('statusDot');
+        const statusText = document.getElementById('statusText');
+        const latencyEl = document.getElementById('latency');
+        const glossaryGrid = document.getElementById('glossaryGrid');
+
+        // Load glossary
+        async function loadGlossary() {
+            try {
+                const response = await fetch(`${API_URL}/glossary`);
+                const data = await response.json();
+                glossaryGrid.innerHTML = data.signs
+                    .map(s => `<span class="glossary-item">${s}</span>`)
+                    .join('');
+            } catch (e) {
+                glossaryGrid.innerHTML = '<span class="glossary-item">Unable to load</span>';
+            }
+        }
+
+        // Toggle camera
+        async function toggleCamera() {
+            if (isRunning) {
+                stopCamera();
+            } else {
+                await startCamera();
+            }
+        }
+
+        // Start camera
+        async function startCamera() {
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({
+                    video: {
+                        width: { ideal: 640 },
+                        height: { ideal: 480 },
+                        facingMode: 'user'
+                    }
+                });
+
+                webcam.srcObject = stream;
+                isRunning = true;
+                startBtn.textContent = 'Stop Camera';
+                clearBtn.disabled = false;
+
+                statusDot.classList.remove('disconnected');
+                statusText.textContent = 'Connected';
+
+                // Start recognition loop
+                recognitionInterval = setInterval(sendFrame, 150); // ~7 fps
+
+            } catch (e) {
+                console.error('Camera error:', e);
+                statusText.textContent = 'Camera access denied';
+                statusDot.classList.add('disconnected');
+            }
+        }
+
+        // Stop camera
+        function stopCamera() {
+            if (stream) {
+                stream.getTracks().forEach(track => track.stop());
+                stream = null;
+            }
+
+            if (recognitionInterval) {
+                clearInterval(recognitionInterval);
+                recognitionInterval = null;
+            }
+
+            isRunning = false;
+            startBtn.textContent = 'Start Camera';
+            clearBtn.disabled = true;
+
+            statusDot.classList.add('disconnected');
+            statusText.textContent = 'Disconnected';
+            latencyEl.textContent = '';
+        }
+
+        // Send frame for recognition
+        async function sendFrame() {
+            if (!isRunning) return;
+
+            try {
+                // Capture frame
+                const canvas = document.createElement('canvas');
+                canvas.width = webcam.videoWidth;
+                canvas.height = webcam.videoHeight;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(webcam, 0, 0);
+
+                const imageData = canvas.toDataURL('image/jpeg', 0.8);
+
+                // Send to API
+                const response = await fetch(`${API_URL}/recognize`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ image: imageData })
+                });
+
+                const result = await response.json();
+
+                // Update UI
+                if (result.success && result.sign) {
+                    currentSign.textContent = result.sign;
+                    confidenceFill.style.width = `${result.confidence * 100}%`;
+
+                    // Update predictions list
+                    if (result.top_predictions && result.top_predictions.length > 0) {
+                        predictionsList.innerHTML = result.top_predictions
+                            .slice(0, 5)
+                            .map(p => `
+                                <li class="prediction-item">
+                                    <span class="prediction-sign">${p.sign}</span>
+                                    <span class="prediction-confidence">${(p.confidence * 100).toFixed(1)}%</span>
+                                </li>
+                            `).join('');
+                    }
+
+                    // Add to transcript if new sign
+                    if (result.sign !== lastSign && result.confidence > 0.6) {
+                        transcript.push(result.sign);
+                        transcriptEl.textContent = transcript.join(' ');
+                        lastSign = result.sign;
+                    }
+                }
+
+                // Update latency
+                latencyEl.textContent = `${result.latency_ms?.toFixed(0) || '-'}ms`;
+
+            } catch (e) {
+                console.error('Recognition error:', e);
+                statusText.textContent = 'API Error';
+            }
+        }
+
+        // Clear transcript
+        function clearTranscript() {
+            transcript = [];
+            lastSign = null;
+            transcriptEl.textContent = 'Signs will appear here...';
+            currentSign.textContent = 'Ready';
+            confidenceFill.style.width = '0%';
+
+            // Clear API buffer
+            fetch(`${API_URL}/clear`, { method: 'POST' }).catch(() => {});
+        }
+
+        // Initialize
+        loadGlossary();
+    </script>
+</body>
+</html>
