@@ -30,13 +30,38 @@ import cv2
 import numpy as np
 from tqdm import tqdm
 
-# Try to import MediaPipe
+# Try to import MediaPipe - handle both old and new API
+MEDIAPIPE_AVAILABLE = False
+MEDIAPIPE_LEGACY = False
+
 try:
     import mediapipe as mp
-    MEDIAPIPE_AVAILABLE = True
+    # Check if legacy solutions API is available
+    if hasattr(mp, 'solutions'):
+        MEDIAPIPE_LEGACY = True
+        MEDIAPIPE_AVAILABLE = True
+    else:
+        # Try new tasks API
+        try:
+            from mediapipe.tasks import python as mp_tasks
+            from mediapipe.tasks.python import vision as mp_vision
+            from mediapipe import solutions as mp_solutions
+            MEDIAPIPE_AVAILABLE = True
+            MEDIAPIPE_LEGACY = True  # solutions still available as import
+        except ImportError:
+            # Try direct solutions import
+            try:
+                from mediapipe import solutions as mp_solutions
+                MEDIAPIPE_AVAILABLE = True
+                MEDIAPIPE_LEGACY = True
+            except ImportError:
+                pass
 except ImportError:
-    MEDIAPIPE_AVAILABLE = False
-    print("ERROR: MediaPipe not installed. Run: pip install mediapipe")
+    pass
+
+if not MEDIAPIPE_AVAILABLE:
+    print("ERROR: MediaPipe not installed or incompatible version.")
+    print("Try: pip install mediapipe==0.10.14")
     sys.exit(1)
 
 logging.basicConfig(
@@ -79,15 +104,21 @@ class LandmarkExtractor:
     def __init__(self, config: LandmarkConfig):
         self.config = config
 
+        # Get the solutions module (works with both old and new API)
+        if hasattr(mp, 'solutions'):
+            solutions = mp.solutions
+        else:
+            solutions = mp_solutions
+
         if config.use_holistic:
-            self.mp_holistic = mp.solutions.holistic
+            self.mp_holistic = solutions.holistic
             self.detector = self.mp_holistic.Holistic(
                 static_image_mode=config.static_image_mode,
                 min_detection_confidence=config.min_detection_confidence,
                 min_tracking_confidence=config.min_tracking_confidence
             )
         else:
-            self.mp_hands = mp.solutions.hands
+            self.mp_hands = solutions.hands
             self.detector = self.mp_hands.Hands(
                 static_image_mode=config.static_image_mode,
                 max_num_hands=config.max_num_hands,
