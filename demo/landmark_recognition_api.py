@@ -40,6 +40,8 @@ import cv2
 import numpy as np
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 import uvicorn
 
@@ -327,6 +329,15 @@ def decode_image(base64_str: str) -> np.ndarray:
     image = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
 
     return image
+
+
+@app.get("/", response_class=HTMLResponse)
+async def serve_demo():
+    """Serve the demo HTML page."""
+    demo_path = SCRIPT_DIR / "recognition_demo.html"
+    if demo_path.exists():
+        return FileResponse(demo_path, media_type="text/html")
+    return HTMLResponse("<h1>Demo not found</h1>", status_code=404)
 
 
 @app.get("/health")
