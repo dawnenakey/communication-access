@@ -91,3 +91,5 @@ android-sdk/ -e
 # Environment files
 *.env
 *.env.*
+signedword/app/dist/
+signedword/app/node_modules/
