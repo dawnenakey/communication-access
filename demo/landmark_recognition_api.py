@@ -480,6 +480,10 @@ def main():
                        help='Host to bind to')
     parser.add_argument('--device', type=str, default='cuda',
                        help='Device (cuda or cpu)')
+    parser.add_argument('--ssl-cert', type=str, default=None,
+                       help='Path to SSL certificate (fullchain.pem)')
+    parser.add_argument('--ssl-key', type=str, default=None,
+                       help='Path to SSL private key (privkey.pem)')
 
     args = parser.parse_args()
 
@@ -488,8 +492,17 @@ def main():
     model = LandmarkModel(args.model, device=args.device)
 
     # Run server
-    print(f"Starting server on {args.host}:{args.port}")
-    uvicorn.run(app, host=args.host, port=args.port)
+    ssl_config = {}
+    if args.ssl_cert and args.ssl_key:
+        ssl_config = {
+            'ssl_certfile': args.ssl_cert,
+            'ssl_keyfile': args.ssl_key
+        }
+        print(f"Starting HTTPS server on {args.host}:{args.port}")
+    else:
+        print(f"Starting HTTP server on {args.host}:{args.port}")
+
+    uvicorn.run(app, host=args.host, port=args.port, **ssl_config)
 
 
 if __name__ == "__main__":
