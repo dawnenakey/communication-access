@@ -490,28 +490,50 @@
 
                 const result = await response.json();
 
-                // Update UI
-                if (result.success && result.sign) {
-                    currentSign.textContent = result.sign;
-                    confidenceFill.style.width = `${result.confidence * 100}%`;
+                // Update UI based on result
+                if (result.success) {
+                    if (result.sign) {
+                        // Valid sign detected
+                        currentSign.textContent = result.sign;
+                        currentSign.style.color = 'var(--yellow)';
+                        confidenceFill.style.width = `${result.confidence * 100}%`;
+                        confidenceFill.style.background = 'var(--green)';
 
-                    // Update predictions list
-                    if (result.top_predictions && result.top_predictions.length > 0) {
-                        predictionsList.innerHTML = result.top_predictions
-                            .slice(0, 5)
-                            .map(p => `
-                                <li class="prediction-item">
-                                    <span class="prediction-sign">${p.sign}</span>
-                                    <span class="prediction-confidence">${(p.confidence * 100).toFixed(1)}%</span>
-                                </li>
-                            `).join('');
-                    }
+                        // Update predictions list
+                        if (result.top_predictions && result.top_predictions.length > 0) {
+                            predictionsList.innerHTML = result.top_predictions
+                                .slice(0, 5)
+                                .map(p => `
+                                    <li class="prediction-item">
+                                        <span class="prediction-sign">${p.sign}</span>
+                                        <span class="prediction-confidence">${(p.confidence * 100).toFixed(1)}%</span>
+                                    </li>
+                                `).join('');
+                        }
 
-                    // Add to transcript if new sign
-                    if (result.sign !== lastSign && result.confidence > 0.6) {
-                        transcript.push(result.sign);
-                        transcriptEl.textContent = transcript.join(' ');
-                        lastSign = result.sign;
+                        // Add to transcript if new sign with good confidence
+                        if (result.sign !== lastSign && result.confidence > 0.65) {
+                            transcript.push(result.sign);
+                            transcriptEl.textContent = transcript.join(' ');
+                            lastSign = result.sign;
+                        }
+                    } else {
+                        // No sign detected - show status message
+                        currentSign.textContent = result.message || 'Waiting...';
+                        currentSign.style.color = 'var(--gray)';
+                        confidenceFill.style.width = '0%';
+
+                        // Show low-confidence predictions if available
+                        if (result.top_predictions && result.top_predictions.length > 0) {
+                            predictionsList.innerHTML = result.top_predictions
+                                .slice(0, 5)
+                                .map(p => `
+                                    <li class="prediction-item" style="opacity: 0.5">
+                                        <span class="prediction-sign">${p.sign}</span>
+                                        <span class="prediction-confidence">${(p.confidence * 100).toFixed(1)}%</span>
+                                    </li>
+                                `).join('');
+                        }
                     }
                 }
 
