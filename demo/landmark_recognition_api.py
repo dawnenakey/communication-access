@@ -11,6 +11,7 @@ trained model predictions.
 Endpoints:
 - POST /recognize - Recognize sign from image
 - POST /recognize-video - Recognize from video clip
+- POST /translate - Translate ASL gloss to English (AWS Bedrock)
 - GET /health - Health check
 - GET /glossary - Get supported signs
 
@@ -45,6 +46,14 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 import uvicorn
 
+# AWS Bedrock for ASL-to-English translation
+try:
+    import boto3
+    BEDROCK_AVAILABLE = True
+except ImportError:
+    BEDROCK_AVAILABLE = False
+    print("Warning: boto3 not available - translation disabled")
+
 # Add parent directory for imports
 SCRIPT_DIR = Path(__file__).parent
 PROJECT_ROOT = SCRIPT_DIR.parent
@@ -72,6 +81,83 @@ try:
 except ImportError:
     MEDIAPIPE_AVAILABLE = False
     print("Warning: MediaPipe not available")
+
+
+# =============================================================================
+# ASL-to-English Translator (AWS Bedrock)
+# =============================================================================
+
+class ASLTranslator:
+    """Translates ASL gloss sequences to natural English using AWS Bedrock."""
+
+    def __init__(self, region: str = "us-east-1"):
+        self.client = None
+        self.region = region
+        self.model_id = "anthropic.claude-3-haiku-20240307-v1:0"
+
+        if BEDROCK_AVAILABLE:
+            try:
+                self.client = boto3.client(
+                    'bedrock-runtime',
+                    region_name=region
+                )
+                print(f"Bedrock translator initialized (region: {region})")
+            except Exception as e:
+                print(f"Failed to initialize Bedrock: {e}")
+                self.client = None
+
+    def translate(self, signs: List[str]) -> Optional[str]:
+        """Convert ASL gloss sequence to natural English."""
+        if not self.client or not signs:
+            return None
+
+        # Build prompt for ASL-to-English translation
+        gloss_sequence = " ".join(signs)
+
+        prompt = f"""You are an ASL (American Sign Language) to English translator.
+Convert the following ASL gloss sequence into natural, grammatically correct English.
+
+ASL Grammar Notes:
+- ASL uses topic-comment structure (e.g., "STORE I GO" means "I'm going to the store")
+- ASL often omits articles (a, an, the) and auxiliary verbs (is, are, was)
+- Time signs often come first (e.g., "TOMORROW I WORK" means "I will work tomorrow")
+- Questions use specific facial grammar, assume statements unless context suggests otherwise
+
+ASL Gloss: {gloss_sequence}
+
+Respond with ONLY the natural English translation, nothing else."""
+
+        try:
+            body = json.dumps({
+                "anthropic_version": "bedrock-2023-05-31",
+                "max_tokens": 200,
+                "messages": [
+                    {"role": "user", "content": prompt}
+                ]
+            })
+
+            response = self.client.invoke_model(
+                modelId=self.model_id,
+                body=body,
+                contentType="application/json",
+                accept="application/json"
+            )
+
+            response_body = json.loads(response['body'].read())
+            translation = response_body['content'][0]['text'].strip()
+            return translation
+
+        except Exception as e:
+            print(f"Translation error: {e}")
+            return None
+
+    def is_available(self) -> bool:
+        """Check if translator is available."""
+        return self.client is not None
+
+
+# Global translator instance
+translator: Optional[ASLTranslator] = None
 
 
 # =============================================================================
@@ -106,12 +192,27 @@ class RecognitionResult(BaseModel):
     landmarks: Optional[Dict[str, List[LandmarkPoint]]] = None
     latency_ms: float = 0.0
     message: str = ""
+    english_translation: Optional[str] = None  # ASL-to-English via Bedrock
 
 
 class GlossaryResponse(BaseModel):
     """Glossary of supported signs."""
     signs: List[str]
     count: int
+
+
+class TranslationRequest(BaseModel):
+    """Request for ASL-to-English translation."""
+    signs: List[str]  # List of ASL gloss signs
+
+
+class TranslationResult(BaseModel):
+    """Translation result."""
+    success: bool = True
+    asl_gloss: str = ""
+    english: Optional[str] = None
+    latency_ms: float = 0.0
+    message: str = ""
 
 
 # =============================================================================
@@ -348,6 +449,7 @@ async def health_check():
         "model_loaded": model is not None and model.model is not None,
         "mediapipe_available": MEDIAPIPE_AVAILABLE,
         "torch_available": TORCH_AVAILABLE,
+        "bedrock_available": translator is not None and translator.is_available(),
         "device": str(model.device) if model else "N/A",
         "num_classes": len(model.label_map) if model else 0
     }
@@ -464,12 +566,45 @@ async def clear_buffer():
     return {"status": "cleared"}
 
 
+@app.post("/translate", response_model=TranslationResult)
+async def translate_asl(request: TranslationRequest):
+    """Translate ASL gloss sequence to natural English using AWS Bedrock."""
+    start_time = time.time()
+
+    if translator is None or not translator.is_available():
+        return TranslationResult(
+            success=False,
+            asl_gloss=" ".join(request.signs),
+            message="Translation service not available",
+            latency_ms=(time.time() - start_time) * 1000
+        )
+
+    try:
+        english = translator.translate(request.signs)
+
+        return TranslationResult(
+            success=True,
+            asl_gloss=" ".join(request.signs),
+            english=english,
+            latency_ms=(time.time() - start_time) * 1000,
+            message="Translation successful" if english else "Translation failed"
+        )
+
+    except Exception as e:
+        return TranslationResult(
+            success=False,
+            asl_gloss=" ".join(request.signs),
+            message=f"Error: {str(e)}",
+            latency_ms=(time.time() - start_time) * 1000
+        )
+
+
 # =============================================================================
 # Main
 # =============================================================================
 
 def main():
-    global model
+    global model, translator
 
     parser = argparse.ArgumentParser(description='Landmark Recognition API')
     parser.add_argument('--model', type=str, default='./models/best_landmark_model.pt',
@@ -484,12 +619,28 @@ def main():
                        help='Path to SSL certificate (fullchain.pem)')
     parser.add_argument('--ssl-key', type=str, default=None,
                        help='Path to SSL private key (privkey.pem)')
+    parser.add_argument('--aws-region', type=str, default='us-east-1',
+                       help='AWS region for Bedrock')
+    parser.add_argument('--no-translate', action='store_true',
+                       help='Disable ASL-to-English translation')
 
     args = parser.parse_args()
 
     # Initialize model
     print(f"Loading model from {args.model}...")
     model = LandmarkModel(args.model, device=args.device)
+
+    # Initialize ASL-to-English translator (AWS Bedrock)
+    if not args.no_translate and BEDROCK_AVAILABLE:
+        print(f"Initializing Bedrock translator (region: {args.aws_region})...")
+        translator = ASLTranslator(region=args.aws_region)
+        if translator.is_available():
+            print("✓ ASL-to-English translation enabled")
+        else:
+            print("✗ Bedrock not available - check AWS credentials")
+    else:
+        translator = None
+        print("Translation disabled")
 
     # Run server
     ssl_config = {}
