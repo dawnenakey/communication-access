@@ -1,16 +1,72 @@
 import { useNavigate } from "react-router-dom";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "../components/ui/button";
 import {
   Hand, Video, BookOpen, Volume2, ArrowRight, Zap, Users, Shield,
-  Brain, Sparkles, Globe, MessageCircle, Mic, Eye
+  Brain, Sparkles, Globe, MessageCircle, Mic, Eye, Accessibility
 } from "lucide-react";
 
-// Animated particle background component
-const ParticleBackground = () => {
+// Check for reduced motion preference
+const usePrefersReducedMotion = () => {
+  const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+    setPrefersReducedMotion(mediaQuery.matches);
+
+    const handler = (e) => setPrefersReducedMotion(e.matches);
+    mediaQuery.addEventListener('change', handler);
+    return () => mediaQuery.removeEventListener('change', handler);
+  }, []);
+
+  return prefersReducedMotion;
+};
+
+// Video background with AI/ML visuals
+const VideoBackground = ({ reducedMotion }) => {
+  const videoRef = useRef(null);
+
+  // AI/ML themed video URLs (royalty-free)
+  const videoSources = [
+    "https://assets.mixkit.co/videos/preview/mixkit-digital-animation-of-futuristic-devices-99786-large.mp4",
+    "https://assets.mixkit.co/videos/preview/mixkit-abstract-technology-network-connections-27866-large.mp4"
+  ];
+
+  if (reducedMotion) {
+    // Static gradient fallback for reduced motion
+    return (
+      <div
+        className="absolute inset-0 bg-gradient-to-br from-gray-900 via-red-950/20 to-black"
+        aria-hidden="true"
+      />
+    );
+  }
+
+  return (
+    <div className="absolute inset-0 overflow-hidden" aria-hidden="true">
+      <video
+        ref={videoRef}
+        autoPlay
+        loop
+        muted
+        playsInline
+        className="absolute w-full h-full object-cover opacity-20"
+        poster="https://images.unsplash.com/photo-1620712943543-bcc4688e7485?w=1920&q=80"
+      >
+        <source src={videoSources[0]} type="video/mp4" />
+      </video>
+      <div className="absolute inset-0 bg-gradient-to-b from-black/60 via-black/80 to-black" />
+    </div>
+  );
+};
+
+// Animated particle background component (respects reduced motion)
+const ParticleBackground = ({ reducedMotion }) => {
   const canvasRef = useRef(null);
 
   useEffect(() => {
+    if (reducedMotion) return;
+
     const canvas = canvasRef.current;
     if (!canvas) return;
 
@@ -80,28 +136,32 @@ const ParticleBackground = () => {
       window.removeEventListener('resize', resize);
       cancelAnimationFrame(animationFrameId);
     };
-  }, []);
+  }, [reducedMotion]);
+
+  if (reducedMotion) return null;
 
   return (
     <canvas
       ref={canvasRef}
       className="absolute inset-0 pointer-events-none opacity-60"
-      style={{ zIndex: 0 }}
+      style={{ zIndex: 1 }}
+      aria-hidden="true"
     />
   );
 };
 
-// Floating orbs component
-const FloatingOrbs = () => (
-  <div className="absolute inset-0 overflow-hidden pointer-events-none">
-    <div className="absolute top-20 left-10 w-72 h-72 bg-red-500/20 rounded-full blur-[100px] animate-pulse" />
-    <div className="absolute top-40 right-20 w-96 h-96 bg-orange-500/15 rounded-full blur-[120px] animate-pulse" style={{ animationDelay: '1s' }} />
-    <div className="absolute bottom-20 left-1/3 w-80 h-80 bg-red-600/10 rounded-full blur-[100px] animate-pulse" style={{ animationDelay: '2s' }} />
+// Floating orbs component (respects reduced motion)
+const FloatingOrbs = ({ reducedMotion }) => (
+  <div className="absolute inset-0 overflow-hidden pointer-events-none" aria-hidden="true">
+    <div className={`absolute top-20 left-10 w-72 h-72 bg-red-500/20 rounded-full blur-[100px] ${!reducedMotion ? 'animate-pulse' : ''}`} />
+    <div className={`absolute top-40 right-20 w-96 h-96 bg-orange-500/15 rounded-full blur-[120px] ${!reducedMotion ? 'animate-pulse' : ''}`} style={{ animationDelay: '1s' }} />
+    <div className={`absolute bottom-20 left-1/3 w-80 h-80 bg-red-600/10 rounded-full blur-[100px] ${!reducedMotion ? 'animate-pulse' : ''}`} style={{ animationDelay: '2s' }} />
   </div>
 );
 
 export default function Landing() {
   const navigate = useNavigate();
+  const reducedMotion = usePrefersReducedMotion();
 
   const handleLogin = () => {
     navigate("/dashboard");
@@ -156,13 +216,22 @@ export default function Landing() {
   ];
 
   return (
-    <div className="min-h-screen bg-[#0a0a0a] text-white overflow-hidden">
-      {/* Animated Background */}
-      <ParticleBackground />
-      <FloatingOrbs />
+    <div className="min-h-screen bg-[#0a0a0a] text-white overflow-hidden" role="main">
+      {/* Skip to main content link for accessibility */}
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:absolute focus:top-4 focus:left-4 focus:z-50 focus:px-4 focus:py-2 focus:bg-red-500 focus:text-white focus:rounded-lg"
+      >
+        Skip to main content
+      </a>
+
+      {/* Animated Background - respects reduced motion */}
+      <VideoBackground reducedMotion={reducedMotion} />
+      <ParticleBackground reducedMotion={reducedMotion} />
+      <FloatingOrbs reducedMotion={reducedMotion} />
 
       {/* Navigation */}
-      <nav className="relative z-20 flex items-center justify-between p-6 lg:px-12">
+      <nav className="relative z-20 flex items-center justify-between p-6 lg:px-12" role="navigation" aria-label="Main navigation">
         <div className="flex items-center gap-3">
           <div className="relative">
             <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-red-500 to-orange-500 flex items-center justify-center shadow-lg shadow-red-500/25">
@@ -192,7 +261,7 @@ export default function Landing() {
       </nav>
 
       {/* Hero Section */}
-      <div className="relative z-10 px-6 lg:px-12 py-16 lg:py-24">
+      <section id="main-content" className="relative z-10 px-6 lg:px-12 py-16 lg:py-24" aria-labelledby="hero-heading">
         <div className="max-w-7xl mx-auto">
           <div className="grid lg:grid-cols-2 gap-16 items-center">
             {/* Left Column - Text */}
@@ -202,7 +271,7 @@ export default function Landing() {
                 <span className="text-sm text-red-400 font-medium">Patent Pending Technology</span>
               </div>
 
-              <h1 className="font-heading font-extrabold text-5xl md:text-7xl tracking-tight leading-[1.1]">
+              <h1 id="hero-heading" className="font-heading font-extrabold text-5xl md:text-7xl tracking-tight leading-[1.1]">
                 <span className="text-white">AI-Powered</span>
                 <br />
                 <span className="bg-gradient-to-r from-red-400 via-orange-400 to-amber-400 bg-clip-text text-transparent">
