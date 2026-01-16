@@ -226,6 +226,11 @@ class LandmarkModel:
     HAND_LANDMARKS = 21
     POSE_LANDMARKS = 13  # Upper body subset
 
+    # Confidence and motion thresholds
+    MIN_CONFIDENCE = 0.65  # Minimum confidence to show prediction
+    MOTION_THRESHOLD = 0.02  # Minimum motion to consider as signing
+    MIN_HAND_LANDMARKS = 10  # Minimum hand landmarks detected
+
     def __init__(self, model_path: str, device: str = "cuda"):
         self.device = torch.device(device if torch.cuda.is_available() else "cpu")
         self.model = None
@@ -236,6 +241,11 @@ class LandmarkModel:
         # Frame buffer for temporal predictions
         self.frame_buffer = deque(maxlen=32)
         self.buffer_lock = threading.Lock()
+
+        # Motion detection
+        self.prev_landmarks = None
+        self.motion_history = deque(maxlen=10)
+        self.hand_detected_history = deque(maxlen=10)
 
         # Load model
         if os.path.exists(model_path):
@@ -285,10 +295,17 @@ class LandmarkModel:
             print(f"Error loading model: {e}")
             self.model = None
 
-    def extract_landmarks(self, image: np.ndarray) -> np.ndarray:
-        """Extract landmarks from a single frame."""
+    def extract_landmarks(self, image: np.ndarray) -> Tuple[np.ndarray, bool, float]:
+        """
+        Extract landmarks from a single frame.
+
+        Returns:
+            features: Landmark feature vector
+            hands_detected: Whether at least one hand was detected
+            motion_amount: Amount of motion from previous frame
+        """
         if not MEDIAPIPE_AVAILABLE or self.holistic is None:
-            return np.zeros(self.feature_dim, dtype=np.float32)
+            return np.zeros(self.feature_dim, dtype=np.float32), False, 0.0
 
         # Convert BGR to RGB
         rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
@@ -297,12 +314,14 @@ class LandmarkModel:
         # Initialize feature vector
         features = np.zeros(self.feature_dim, dtype=np.float32)
         idx = 0
+        hand_landmarks_count = 0
 
         # Left hand (21 landmarks * 3 coords = 63)
         if results.left_hand_landmarks:
             for lm in results.left_hand_landmarks.landmark:
                 features[idx:idx+3] = [lm.x * 2 - 1, lm.y * 2 - 1, lm.z * 2 - 1]
                 idx += 3
+            hand_landmarks_count += 21
         else:
             idx += 63
 
@@ -311,6 +330,7 @@ class LandmarkModel:
             for lm in results.right_hand_landmarks.landmark:
                 features[idx:idx+3] = [lm.x * 2 - 1, lm.y * 2 - 1, lm.z * 2 - 1]
                 idx += 3
+            hand_landmarks_count += 21
         else:
             idx += 63
 
@@ -322,21 +342,72 @@ class LandmarkModel:
                 features[idx:idx+3] = [lm.x * 2 - 1, lm.y * 2 - 1, lm.z * 2 - 1]
                 idx += 3
 
-        return features
+        # Calculate motion from previous frame
+        motion_amount = 0.0
+        if self.prev_landmarks is not None:
+            # Only compare hand landmarks (first 126 features)
+            hand_features = features[:126]
+            prev_hand_features = self.prev_landmarks[:126]
+            motion_amount = np.mean(np.abs(hand_features - prev_hand_features))
 
-    def add_frame(self, image: np.ndarray):
-        """Add frame to buffer for temporal prediction."""
-        landmarks = self.extract_landmarks(image)
+        self.prev_landmarks = features.copy()
+
+        # Track hand detection and motion
+        hands_detected = hand_landmarks_count >= self.MIN_HAND_LANDMARKS
+        self.hand_detected_history.append(hands_detected)
+        self.motion_history.append(motion_amount)
+
+        return features, hands_detected, motion_amount
+
+    def add_frame(self, image: np.ndarray) -> Tuple[bool, float]:
+        """
+        Add frame to buffer for temporal prediction.
+
+        Returns:
+            hands_detected: Whether hands were detected
+            motion_amount: Amount of motion detected
+        """
+        landmarks, hands_detected, motion_amount = self.extract_landmarks(image)
         with self.buffer_lock:
             self.frame_buffer.append(landmarks)
+        return hands_detected, motion_amount
 
-    def predict(self, min_frames: int = 8) -> Tuple[str, float, List[Dict]]:
-        """Predict sign from buffered frames."""
+    def has_sufficient_motion(self) -> bool:
+        """Check if there's enough motion to indicate signing."""
+        if len(self.motion_history) < 5:
+            return False
+        avg_motion = sum(self.motion_history) / len(self.motion_history)
+        return avg_motion > self.MOTION_THRESHOLD
+
+    def has_hands_detected(self) -> bool:
+        """Check if hands have been consistently detected."""
+        if len(self.hand_detected_history) < 3:
+            return False
+        # At least 60% of recent frames should have hands
+        return sum(self.hand_detected_history) / len(self.hand_detected_history) >= 0.6
+
+    def predict(self, min_frames: int = 8) -> Tuple[str, float, List[Dict], str]:
+        """
+        Predict sign from buffered frames.
+
+        Returns:
+            sign: Predicted sign (or None)
+            confidence: Prediction confidence
+            top_predictions: Top 5 predictions
+            status: Status message ("signing", "no_hands", "no_motion", "collecting")
+        """
         with self.buffer_lock:
             frames = list(self.frame_buffer)
 
+        # Check prerequisites
         if len(frames) < min_frames:
-            return None, 0.0, []
+            return None, 0.0, [], "collecting"
+
+        if not self.has_hands_detected():
+            return None, 0.0, [], "no_hands"
+
+        if not self.has_sufficient_motion():
+            return None, 0.0, [], "no_motion"
 
         if self.model is None:
             # Return mock prediction if no model
@@ -344,7 +415,7 @@ class LandmarkModel:
                 {"sign": "HELLO", "confidence": 0.85},
                 {"sign": "HI", "confidence": 0.10},
                 {"sign": "WAVE", "confidence": 0.05}
-            ]
+            ], "signing"
 
         # Prepare input
         sequence = np.array(frames, dtype=np.float32)
@@ -384,7 +455,11 @@ class LandmarkModel:
             best_sign = top_predictions[0]["sign"]
             best_conf = top_predictions[0]["confidence"]
 
-        return best_sign, best_conf, top_predictions
+            # Apply minimum confidence threshold
+            if best_conf < self.MIN_CONFIDENCE:
+                return None, best_conf, top_predictions, "low_confidence"
+
+        return best_sign, best_conf, top_predictions, "signing"
 
     def clear_buffer(self):
         """Clear frame buffer."""
@@ -487,11 +562,20 @@ async def recognize_sign(request: RecognitionRequest):
                 latency_ms=(time.time() - start_time) * 1000
             )
 
-        # Add frame to buffer
-        model.add_frame(image)
+        # Add frame to buffer (also returns detection info)
+        hands_detected, motion_amount = model.add_frame(image)
 
         # Predict
-        sign, confidence, top_predictions = model.predict(min_frames=8)
+        sign, confidence, top_predictions, status = model.predict(min_frames=8)
+
+        # Generate user-friendly status messages
+        status_messages = {
+            "signing": "Recognition successful",
+            "collecting": "Collecting frames...",
+            "no_hands": "Position hands in view",
+            "no_motion": "Waiting for sign...",
+            "low_confidence": "Sign unclear - try again"
+        }
 
         # Get landmarks if requested
         landmarks = None
@@ -506,7 +590,7 @@ async def recognize_sign(request: RecognitionRequest):
             top_predictions=top_predictions,
             landmarks=landmarks,
             latency_ms=(time.time() - start_time) * 1000,
-            message="Recognition successful" if sign else "Collecting frames..."
+            message=status_messages.get(status, "Processing...")
         )
 
     except Exception as e:
