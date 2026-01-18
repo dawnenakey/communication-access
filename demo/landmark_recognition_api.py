@@ -623,7 +623,16 @@ async def recognize_video(request: VideoRecognitionRequest):
                 model.add_frame(image)
 
         # Predict
-        sign, confidence, top_predictions = model.predict(min_frames=4)
+        sign, confidence, top_predictions, status = model.predict(min_frames=4)
+
+        # Generate user-friendly status messages
+        status_messages = {
+            "signing": "Recognition successful",
+            "collecting": "Collecting frames...",
+            "no_hands": "Position hands in view",
+            "no_motion": "Waiting for sign...",
+            "low_confidence": "Sign unclear - try again"
+        }
 
         return RecognitionResult(
             success=True,
@@ -631,7 +640,7 @@ async def recognize_video(request: VideoRecognitionRequest):
             confidence=confidence,
             top_predictions=top_predictions,
             latency_ms=(time.time() - start_time) * 1000,
-            message="Recognition successful" if sign else "Not enough valid frames"
+            message=status_messages.get(status, "Processing...")
         )
 
     except Exception as e:
