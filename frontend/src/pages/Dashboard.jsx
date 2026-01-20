@@ -5,11 +5,12 @@ import { toast } from "sonner";
 import { useAuth, API } from "../App";
 import { Button } from "../components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
-import { 
-  Hand, Video, Type, Volume2, Mic, MicOff, Camera, CameraOff, 
+import {
+  Hand, Video, Type, Volume2, Mic, MicOff, Camera, CameraOff,
   Upload, History, BookOpen, LogOut, User, Settings, Play, Square,
-  Loader2, ChevronRight, RefreshCw, Trash2
+  Loader2, ChevronRight, RefreshCw, Trash2, MessageCircle
 } from "lucide-react";
+import ConversationMode from "../components/ConversationMode";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -346,14 +347,14 @@ export default function Dashboard() {
           </div>
 
           <nav className="hidden md:flex items-center gap-2">
-            <Button 
-              variant="ghost" 
+            <Button
+              variant="ghost"
               onClick={() => navigate("/dashboard")}
               data-testid="nav-dashboard"
               className="text-foreground"
             >
-              <Camera className="w-4 h-4 mr-2" />
-              Translate
+              <MessageCircle className="w-4 h-4 mr-2" />
+              Conversation
             </Button>
             <Button 
               variant="ghost" 
@@ -411,26 +412,34 @@ export default function Dashboard() {
       {/* Main Content */}
       <main className="p-6 lg:p-8">
         <div className="max-w-7xl mx-auto">
-          <Tabs defaultValue="camera" className="space-y-6">
+          <Tabs defaultValue="conversation" className="space-y-6">
             <TabsList className="glass h-12 p-1 gap-1">
-              <TabsTrigger 
-                value="camera" 
+              <TabsTrigger
+                value="conversation"
+                data-testid="tab-conversation"
+                className="data-[state=active]:bg-gradient-to-r data-[state=active]:from-cyan-500 data-[state=active]:to-blue-500 data-[state=active]:text-white rounded-lg px-6"
+              >
+                <MessageCircle className="w-4 h-4 mr-2" />
+                Conversation
+              </TabsTrigger>
+              <TabsTrigger
+                value="camera"
                 data-testid="tab-camera"
                 className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground rounded-lg px-6"
               >
                 <Camera className="w-4 h-4 mr-2" />
                 Live Camera
               </TabsTrigger>
-              <TabsTrigger 
-                value="video" 
+              <TabsTrigger
+                value="video"
                 data-testid="tab-video"
                 className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground rounded-lg px-6"
               >
                 <Video className="w-4 h-4 mr-2" />
                 Video Upload
               </TabsTrigger>
-              <TabsTrigger 
-                value="text" 
+              <TabsTrigger
+                value="text"
                 data-testid="tab-text"
                 className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground rounded-lg px-6"
               >
@@ -438,6 +447,24 @@ export default function Dashboard() {
                 Text to ASL
               </TabsTrigger>
             </TabsList>
+
+            {/* Conversation Tab - Bidirectional Sign Language Communication */}
+            <TabsContent value="conversation" className="space-y-6">
+              <div className="glass-card p-4 mb-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-cyan-400 to-blue-500 flex items-center justify-center">
+                    <MessageCircle className="w-5 h-5 text-white" />
+                  </div>
+                  <div>
+                    <h3 className="font-heading font-bold">Sign Language Conversation</h3>
+                    <p className="text-sm text-muted-foreground">
+                      Sign or type to chat - the system responds in sign language
+                    </p>
+                  </div>
+                </div>
+              </div>
+              <ConversationMode />
+            </TabsContent>
 
             {/* Live Camera Tab */}
             <TabsContent value="camera" className="space-y-6">
