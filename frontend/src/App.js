@@ -8,6 +8,7 @@ import Landing from "./pages/Landing";
 import Dashboard from "./pages/Dashboard";
 import Dictionary from "./pages/Dictionary";
 import History from "./pages/History";
+import ConversationalDemo from "./pages/ConversationalDemo";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 export const API = `${BACKEND_URL}/api`;
@@ -133,6 +134,7 @@ function AppRouter() {
   return (
     <Routes>
       <Route path="/" element={<Landing />} />
+      <Route path="/conversationaldemo" element={<ConversationalDemo />} />
       <Route
         path="/dashboard"
         element={
