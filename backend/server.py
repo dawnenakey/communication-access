@@ -1,5 +1,5 @@
 from fastapi import FastAPI, APIRouter, HTTPException, Request, Response, UploadFile, File, Form, Depends
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -7,11 +7,20 @@ import os
 import logging
 from pathlib import Path
 from pydantic import BaseModel, Field
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 import uuid
 from datetime import datetime, timezone, timedelta
 import base64
 import httpx
+import json
+
+# AWS Bedrock for translation
+try:
+    import boto3
+    BEDROCK_AVAILABLE = True
+except ImportError:
+    BEDROCK_AVAILABLE = False
+    print("Warning: boto3 not available - LLM translation disabled")
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -99,6 +108,237 @@ class SLRRecognizeResponse(BaseModel):
     alternatives: Optional[List[dict]] = None
     processing_time_ms: float
     request_id: str
+
+# ============== CONVERSATION MODELS ==============
+
+class EnglishToASLRequest(BaseModel):
+    text: str = Field(..., description="English text to translate to ASL gloss")
+
+class EnglishToASLResponse(BaseModel):
+    english: str
+    asl_gloss: List[str]
+    processing_time_ms: float
+
+class ConversationMessage(BaseModel):
+    role: str  # 'user' (signing) or 'system' (response)
+    content: str
+    asl_gloss: Optional[List[str]] = None
+    video_url: Optional[str] = None
+    timestamp: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+
+class ConversationRequest(BaseModel):
+    frames: Optional[List[str]] = Field(None, description="Video frames for sign recognition (if user is signing)")
+    text: Optional[str] = Field(None, description="Text input (if typing instead of signing)")
+    conversation_id: Optional[str] = Field(None, description="Existing conversation ID to continue")
+    avatar_id: Optional[str] = Field(None, description="Avatar ID for response video generation")
+
+class ConversationResponse(BaseModel):
+    conversation_id: str
+    user_message: ConversationMessage
+    system_response: ConversationMessage
+    available_signs: List[str]
+    processing_time_ms: float
+
+# ============== BEDROCK TRANSLATOR ==============
+
+class BedrockTranslator:
+    """Bidirectional ASL/English translator using AWS Bedrock."""
+
+    def __init__(self, region: str = "us-east-1"):
+        self.client = None
+        self.region = region
+        self.model_id = "anthropic.claude-3-haiku-20240307-v1:0"
+
+        if BEDROCK_AVAILABLE:
+            try:
+                self.client = boto3.client('bedrock-runtime', region_name=region)
+                logger.info(f"Bedrock translator initialized (region: {region})")
+            except Exception as e:
+                logger.warning(f"Failed to initialize Bedrock: {e}")
+                self.client = None
+
+    def english_to_asl_gloss(self, text: str) -> List[str]:
+        """Convert English text to ASL gloss sequence."""
+        if not self.client:
+            # Fallback: simple word extraction
+            return self._simple_gloss(text)
+
+        prompt = f"""You are an English to ASL (American Sign Language) gloss translator.
+Convert the following English sentence into ASL gloss format.
+
+ASL Gloss Rules:
+- Use CAPITAL LETTERS for each sign
+- Use underscores for multi-word concepts (e.g., ICE_CREAM)
+- ASL uses topic-comment structure
+- Remove articles (a, an, the) and helper verbs (is, are, was, were)
+- Time concepts typically come first
+- Questions have specific markers (WHO, WHAT, WHERE, WHY, HOW, WHEN)
+- Use common ASL vocabulary when possible
+
+Available signs in our system (prefer these when possible):
+HELLO, GOODBYE, NICE_TO_MEET_YOU, THANK_YOU, PLEASE, SORRY, YES, NO, HELP,
+WHAT, WHERE, WHO, WHY, HOW, WHEN, I_LOVE_YOU, HAPPY, SAD, UNDERSTAND,
+WANT, NEED, LIKE, KNOW, LEARN, FINISH, NAME, MY, YOUR, YOU, ME, WE,
+GOOD, BAD, MORE, AGAIN, WAIT, STOP, GO, COME, EAT, DRINK, SLEEP, WORK
+
+English: {text}
+
+Respond with ONLY the ASL gloss signs separated by spaces, nothing else.
+Example input: "Hello, how are you?"
+Example output: HELLO HOW YOU"""
+
+        try:
+            body = json.dumps({
+                "anthropic_version": "bedrock-2023-05-31",
+                "max_tokens": 200,
+                "messages": [{"role": "user", "content": prompt}]
+            })
+
+            response = self.client.invoke_model(
+                modelId=self.model_id,
+                body=body,
+                contentType="application/json",
+                accept="application/json"
+            )
+
+            response_body = json.loads(response['body'].read())
+            gloss_text = response_body['content'][0]['text'].strip()
+            return gloss_text.split()
+
+        except Exception as e:
+            logger.error(f"English to ASL translation error: {e}")
+            return self._simple_gloss(text)
+
+    def asl_gloss_to_english(self, signs: List[str]) -> str:
+        """Convert ASL gloss sequence to natural English."""
+        if not self.client:
+            return " ".join(signs).replace("_", " ").title()
+
+        gloss_sequence = " ".join(signs)
+
+        prompt = f"""You are an ASL (American Sign Language) to English translator.
+Convert the following ASL gloss sequence into natural, grammatically correct English.
+
+ASL Grammar Notes:
+- ASL uses topic-comment structure (e.g., "STORE I GO" means "I'm going to the store")
+- ASL often omits articles (a, an, the) and auxiliary verbs (is, are, was)
+- Time signs often come first (e.g., "TOMORROW I WORK" means "I will work tomorrow")
+
+ASL Gloss: {gloss_sequence}
+
+Respond with ONLY the natural English translation, nothing else."""
+
+        try:
+            body = json.dumps({
+                "anthropic_version": "bedrock-2023-05-31",
+                "max_tokens": 200,
+                "messages": [{"role": "user", "content": prompt}]
+            })
+
+            response = self.client.invoke_model(
+                modelId=self.model_id,
+                body=body,
+                contentType="application/json",
+                accept="application/json"
+            )
+
+            response_body = json.loads(response['body'].read())
+            return response_body['content'][0]['text'].strip()
+
+        except Exception as e:
+            logger.error(f"ASL to English translation error: {e}")
+            return " ".join(signs).replace("_", " ").title()
+
+    def generate_response(self, user_message: str, context: List[Dict] = None) -> str:
+        """Generate a conversational response to user's message."""
+        if not self.client:
+            return self._fallback_response(user_message)
+
+        context_str = ""
+        if context:
+            context_str = "Previous conversation:\n"
+            for msg in context[-5:]:  # Last 5 messages
+                context_str += f"- {msg['role']}: {msg['content']}\n"
+
+        prompt = f"""You are a friendly AI assistant communicating with a deaf user through sign language.
+Keep your responses short and simple (1-2 sentences max) since they will be translated to ASL.
+Use vocabulary that's common in ASL. Avoid complex idioms or figures of speech.
+
+{context_str}
+
+User said: {user_message}
+
+Respond naturally and helpfully in simple English."""
+
+        try:
+            body = json.dumps({
+                "anthropic_version": "bedrock-2023-05-31",
+                "max_tokens": 100,
+                "messages": [{"role": "user", "content": prompt}]
+            })
+
+            response = self.client.invoke_model(
+                modelId=self.model_id,
+                body=body,
+                contentType="application/json",
+                accept="application/json"
+            )
+
+            response_body = json.loads(response['body'].read())
+            return response_body['content'][0]['text'].strip()
+
+        except Exception as e:
+            logger.error(f"Response generation error: {e}")
+            return self._fallback_response(user_message)
+
+    def _simple_gloss(self, text: str) -> List[str]:
+        """Simple fallback gloss conversion."""
+        # Remove punctuation and convert to uppercase
+        import re
+        words = re.sub(r'[^\w\s]', '', text).upper().split()
+        # Remove common articles
+        skip_words = {'A', 'AN', 'THE', 'IS', 'ARE', 'WAS', 'WERE', 'AM', 'BE', 'BEEN'}
+        return [w for w in words if w not in skip_words]
+
+    def _fallback_response(self, user_message: str) -> str:
+        """Simple fallback responses."""
+        user_lower = user_message.lower()
+        if any(g in user_lower for g in ['hello', 'hi', 'hey']):
+            return "Hello! Nice to meet you."
+        elif any(q in user_lower for q in ['how are you', 'how you']):
+            return "I am good, thank you! How are you?"
+        elif 'thank' in user_lower:
+            return "You're welcome!"
+        elif any(q in user_lower for q in ['bye', 'goodbye']):
+            return "Goodbye! Have a great day!"
+        elif '?' in user_message:
+            return "That's a good question. Let me help you."
+        else:
+            return "I understand. How can I help you?"
+
+    def is_available(self) -> bool:
+        return self.client is not None
+
+
+# Global translator instance
+bedrock_translator: Optional[BedrockTranslator] = None
+
+def get_translator() -> BedrockTranslator:
+    global bedrock_translator
+    if bedrock_translator is None:
+        region = os.environ.get('AWS_REGION', 'us-east-1')
+        bedrock_translator = BedrockTranslator(region=region)
+    return bedrock_translator
+
+# Available signs that have video support
+AVAILABLE_SIGNS = [
+    "HELLO", "GOODBYE", "NICE_TO_MEET_YOU", "THANK_YOU", "PLEASE", "SORRY",
+    "YES", "NO", "HELP", "WHAT", "WHERE", "WHO", "WHY", "HOW", "WHEN",
+    "I_LOVE_YOU", "HAPPY", "SAD", "UNDERSTAND", "WANT", "NEED", "LIKE",
+    "KNOW", "LEARN", "FINISH", "NAME", "MY", "YOUR", "YOU", "ME", "WE",
+    "GOOD", "BAD", "MORE", "AGAIN", "WAIT", "STOP", "GO", "COME",
+    "EAT", "DRINK", "SLEEP", "WORK"
+]
 
 # ============== AUTH HELPERS ==============
 
@@ -604,11 +844,257 @@ async def slr_health_check():
             "error": str(e)
         }
 
+# ============== CONVERSATION ROUTES ==============
+
+@api_router.post("/translate/english-to-asl", response_model=EnglishToASLResponse)
+async def translate_english_to_asl(
+    request: EnglishToASLRequest,
+    user: User = Depends(get_current_user)
+):
+    """
+    Translate English text to ASL gloss sequence.
+    Uses AWS Bedrock Claude for intelligent translation.
+    """
+    import time
+    start_time = time.time()
+
+    translator = get_translator()
+    asl_gloss = translator.english_to_asl_gloss(request.text)
+
+    processing_time = (time.time() - start_time) * 1000
+
+    return EnglishToASLResponse(
+        english=request.text,
+        asl_gloss=asl_gloss,
+        processing_time_ms=processing_time
+    )
+
+
+@api_router.post("/conversation", response_model=ConversationResponse)
+async def process_conversation(
+    request: ConversationRequest,
+    user: User = Depends(get_current_user)
+):
+    """
+    Process a bidirectional sign language conversation.
+
+    Flow:
+    1. User signs (frames) OR types text
+    2. System recognizes sign / processes text
+    3. System generates response in English
+    4. System converts response to ASL gloss
+    5. Returns response with available signs for avatar
+
+    This enables:
+    - Deaf user signs → System responds in signs
+    - Hearing user types → Response shown as signs
+    """
+    import time
+    start_time = time.time()
+
+    translator = get_translator()
+    user_text = ""
+    user_asl_gloss = []
+
+    # Step 1: Get user's message (either from sign recognition or text)
+    if request.frames and len(request.frames) > 0:
+        # Recognize sign from video frames via SonZo SLR API
+        if not SONZO_SLR_API_KEY:
+            raise HTTPException(
+                status_code=503,
+                detail="SLR service not configured"
+            )
+
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as http_client:
+                response = await http_client.post(
+                    f"{SONZO_SLR_API_URL}/api/slr/recognize",
+                    json={
+                        "frames": request.frames,
+                        "return_alternatives": False,
+                        "confidence_threshold": 0.5
+                    },
+                    headers={
+                        "X-API-Key": SONZO_SLR_API_KEY,
+                        "Content-Type": "application/json"
+                    }
+                )
+
+                if response.status_code == 200:
+                    result = response.json()
+                    recognized_sign = result.get("sign", "UNKNOWN")
+                    if recognized_sign != "UNKNOWN":
+                        user_asl_gloss = [recognized_sign]
+                        # Convert ASL to English for context
+                        user_text = translator.asl_gloss_to_english(user_asl_gloss)
+                    else:
+                        user_text = "Hello"  # Default if recognition fails
+                        user_asl_gloss = ["HELLO"]
+                else:
+                    user_text = "Hello"
+                    user_asl_gloss = ["HELLO"]
+
+        except Exception as e:
+            logger.error(f"SLR recognition error in conversation: {e}")
+            user_text = "Hello"
+            user_asl_gloss = ["HELLO"]
+
+    elif request.text:
+        # User typed text
+        user_text = request.text
+        user_asl_gloss = translator.english_to_asl_gloss(request.text)
+    else:
+        raise HTTPException(
+            status_code=400,
+            detail="Either 'frames' or 'text' is required"
+        )
+
+    # Step 2: Generate or retrieve conversation context
+    conversation_id = request.conversation_id or f"conv_{uuid.uuid4().hex[:12]}"
+
+    # Get existing conversation context from DB
+    conversation_doc = await db.conversations.find_one(
+        {"conversation_id": conversation_id, "user_id": user.user_id}
+    )
+
+    context = []
+    if conversation_doc:
+        context = conversation_doc.get("messages", [])
+
+    # Step 3: Generate system response
+    response_english = translator.generate_response(user_text, context)
+
+    # Step 4: Convert response to ASL gloss
+    response_asl_gloss = translator.english_to_asl_gloss(response_english)
+
+    # Step 5: Filter to available signs and find video URLs
+    available_response_signs = [
+        sign for sign in response_asl_gloss
+        if sign in AVAILABLE_SIGNS
+    ]
+
+    # If no available signs, provide fallback
+    if not available_response_signs:
+        # Find closest available signs
+        if any(g in response_english.lower() for g in ['hello', 'hi']):
+            available_response_signs = ["HELLO"]
+        elif 'thank' in response_english.lower():
+            available_response_signs = ["THANK_YOU"]
+        elif 'good' in response_english.lower():
+            available_response_signs = ["GOOD"]
+        else:
+            available_response_signs = ["HELLO"]  # Default
+
+    # Build video URL (if avatar API is available)
+    video_url = None
+    if request.avatar_id and available_response_signs:
+        # Video would be generated by avatar API
+        video_url = f"/api/avatar/{request.avatar_id}/video/{available_response_signs[0]}"
+
+    # Create message objects
+    user_message = ConversationMessage(
+        role="user",
+        content=user_text,
+        asl_gloss=user_asl_gloss
+    )
+
+    system_response = ConversationMessage(
+        role="system",
+        content=response_english,
+        asl_gloss=available_response_signs,
+        video_url=video_url
+    )
+
+    # Save conversation to database
+    new_messages = [
+        {"role": "user", "content": user_text, "asl_gloss": user_asl_gloss, "timestamp": datetime.now(timezone.utc).isoformat()},
+        {"role": "system", "content": response_english, "asl_gloss": available_response_signs, "timestamp": datetime.now(timezone.utc).isoformat()}
+    ]
+
+    if conversation_doc:
+        # Update existing conversation
+        await db.conversations.update_one(
+            {"conversation_id": conversation_id},
+            {"$push": {"messages": {"$each": new_messages}}}
+        )
+    else:
+        # Create new conversation
+        await db.conversations.insert_one({
+            "conversation_id": conversation_id,
+            "user_id": user.user_id,
+            "messages": new_messages,
+            "created_at": datetime.now(timezone.utc).isoformat()
+        })
+
+    processing_time = (time.time() - start_time) * 1000
+
+    return ConversationResponse(
+        conversation_id=conversation_id,
+        user_message=user_message,
+        system_response=system_response,
+        available_signs=AVAILABLE_SIGNS,
+        processing_time_ms=processing_time
+    )
+
+
+@api_router.get("/conversation/{conversation_id}")
+async def get_conversation(
+    conversation_id: str,
+    user: User = Depends(get_current_user)
+):
+    """Get conversation history."""
+    conversation = await db.conversations.find_one(
+        {"conversation_id": conversation_id, "user_id": user.user_id},
+        {"_id": 0}
+    )
+
+    if not conversation:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    return conversation
+
+
+@api_router.delete("/conversation/{conversation_id}")
+async def delete_conversation(
+    conversation_id: str,
+    user: User = Depends(get_current_user)
+):
+    """Delete a conversation."""
+    result = await db.conversations.delete_one({
+        "conversation_id": conversation_id,
+        "user_id": user.user_id
+    })
+
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    return {"message": "Conversation deleted"}
+
+
+@api_router.get("/conversation/signs/available")
+async def get_available_signs():
+    """Get list of signs that have video support for avatar responses."""
+    return {
+        "signs": AVAILABLE_SIGNS,
+        "count": len(AVAILABLE_SIGNS),
+        "categories": {
+            "greetings": ["HELLO", "GOODBYE", "NICE_TO_MEET_YOU"],
+            "common": ["THANK_YOU", "PLEASE", "SORRY", "YES", "NO", "HELP"],
+            "questions": ["WHAT", "WHERE", "WHO", "WHY", "HOW", "WHEN"],
+            "feelings": ["I_LOVE_YOU", "HAPPY", "SAD", "UNDERSTAND"],
+            "actions": ["WANT", "NEED", "LIKE", "KNOW", "LEARN", "FINISH", "WAIT", "STOP", "GO", "COME"],
+            "pronouns": ["NAME", "MY", "YOUR", "YOU", "ME", "WE"],
+            "descriptors": ["GOOD", "BAD", "MORE", "AGAIN"],
+            "daily": ["EAT", "DRINK", "SLEEP", "WORK"]
+        }
+    }
+
+
 # ============== UTILITY ROUTES ==============
 
 @api_router.get("/")
 async def root():
-    return {"message": "SignSync AI API", "version": "1.0.0"}
+    return {"message": "SignSync AI API", "version": "1.0.0", "features": ["slr", "conversation", "avatar"]}
 
 @api_router.get("/health")
 async def health_check():
