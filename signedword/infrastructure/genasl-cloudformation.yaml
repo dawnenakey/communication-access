@@ -1,0 +1,784 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'GenASL - AWS GenAI ASL Avatar Infrastructure for SignedWord'
+
+# Reference: https://github.com/aws-samples/genai-asl-avatar-generator
+# This template creates the AWS infrastructure for realistic ASL avatar generation
+# using the ASLLVD dataset (3,300+ signs) and AWS Step Functions orchestration.
+
+Parameters:
+  Environment:
+    Type: String
+    Default: production
+    AllowedValues:
+      - development
+      - staging
+      - production
+    Description: Deployment environment
+
+  ASLLVDDatasetBucket:
+    Type: String
+    Default: ''
+    Description: S3 bucket containing the ASLLVD dataset videos (optional - can import later)
+
+  BedrockModelId:
+    Type: String
+    Default: anthropic.claude-3-sonnet-20240229-v1:0
+    Description: Bedrock model ID for English to ASL translation
+
+Resources:
+  # =============================================================================
+  # S3 BUCKETS FOR GENASL
+  # =============================================================================
+
+  GenASLVideosBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub 'genasl-videos-${AWS::AccountId}-${Environment}'
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      CorsConfiguration:
+        CorsRules:
+          - AllowedHeaders: ['*']
+            AllowedMethods: [GET, HEAD]
+            AllowedOrigins: ['*']
+            MaxAge: 3600
+      LifecycleConfiguration:
+        Rules:
+          - Id: DeleteTempFiles
+            Status: Enabled
+            Prefix: temp/
+            ExpirationInDays: 1
+          - Id: DeleteOldOutputs
+            Status: Enabled
+            Prefix: outputs/
+            ExpirationInDays: 30
+      Tags:
+        - Key: Project
+          Value: GenASL
+        - Key: Purpose
+          Value: ASL Avatar Video Storage
+
+  # =============================================================================
+  # DYNAMODB TABLE FOR SIGN MAPPINGS
+  # =============================================================================
+
+  GenASLSignsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub 'genasl-signs-${Environment}'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: gloss
+          AttributeType: S
+        - AttributeName: category
+          AttributeType: S
+      KeySchema:
+        - AttributeName: gloss
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: category-index
+          KeySchema:
+            - AttributeName: category
+              KeyType: HASH
+            - AttributeName: gloss
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+      Tags:
+        - Key: Project
+          Value: GenASL
+
+  # =============================================================================
+  # IAM ROLES
+  # =============================================================================
+
+  GenASLStepFunctionsRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub 'genasl-stepfunctions-role-${Environment}'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: states.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: GenASLStepFunctionsPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - lambda:InvokeFunction
+                Resource:
+                  - !GetAtt TranslateToGlossLambda.Arn
+                  - !GetAtt LookupSignVideosLambda.Arn
+                  - !GetAtt StitchVideoLambda.Arn
+              - Effect: Allow
+                Action:
+                  - transcribe:StartTranscriptionJob
+                  - transcribe:GetTranscriptionJob
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogDelivery
+                  - logs:GetLogDelivery
+                  - logs:UpdateLogDelivery
+                  - logs:DeleteLogDelivery
+                  - logs:ListLogDeliveries
+                  - logs:PutResourcePolicy
+                  - logs:DescribeResourcePolicies
+                  - logs:DescribeLogGroups
+                Resource: '*'
+
+  GenASLLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub 'genasl-lambda-role-${Environment}'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: GenASLLambdaPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:DeleteObject
+                  - s3:ListBucket
+                Resource:
+                  - !GetAtt GenASLVideosBucket.Arn
+                  - !Sub '${GenASLVideosBucket.Arn}/*'
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:Query
+                  - dynamodb:Scan
+                  - dynamodb:PutItem
+                  - dynamodb:BatchGetItem
+                Resource:
+                  - !GetAtt GenASLSignsTable.Arn
+                  - !Sub '${GenASLSignsTable.Arn}/index/*'
+              - Effect: Allow
+                Action:
+                  - bedrock:InvokeModel
+                Resource:
+                  - !Sub 'arn:aws:bedrock:${AWS::Region}::foundation-model/${BedrockModelId}'
+
+  # =============================================================================
+  # LAMBDA FUNCTIONS
+  # =============================================================================
+
+  TranslateToGlossLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub 'genasl-translate-to-gloss-${Environment}'
+      Runtime: python3.11
+      Handler: index.handler
+      Role: !GetAtt GenASLLambdaRole.Arn
+      Timeout: 60
+      MemorySize: 512
+      Environment:
+        Variables:
+          BEDROCK_MODEL_ID: !Ref BedrockModelId
+          SIGNS_TABLE: !Ref GenASLSignsTable
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          import os
+          import re
+
+          bedrock = boto3.client('bedrock-runtime')
+          dynamodb = boto3.resource('dynamodb')
+
+          def handler(event, context):
+              """Translate English text to ASL gloss using Bedrock Claude."""
+              english_text = event.get('english_text', '')
+              model_id = os.environ['BEDROCK_MODEL_ID']
+
+              # Get available signs for context
+              table = dynamodb.Table(os.environ['SIGNS_TABLE'])
+              available_signs = []
+              try:
+                  response = table.scan(ProjectionExpression='gloss', Limit=300)
+                  available_signs = [item['gloss'] for item in response.get('Items', [])]
+              except Exception as e:
+                  print(f"Error getting signs: {e}")
+
+              prompt = f"""You are an expert English to ASL gloss translator.
+
+          Convert this English text to ASL gloss format:
+
+          ASL RULES:
+          1. Use CAPITAL-LETTERS with hyphens for multi-word concepts
+          2. Topic-comment structure (topic first)
+          3. Time concepts come first
+          4. Remove articles (a, an, the) and auxiliary verbs
+          5. Questions end with question word
+          6. Use #WORD for fingerspelling names/unknown words
+
+          Available signs: {', '.join(available_signs[:150])}
+
+          English: {english_text}
+
+          Output ONLY space-separated ASL gloss:"""
+
+              try:
+                  body = json.dumps({
+                      "anthropic_version": "bedrock-2023-05-31",
+                      "max_tokens": 500,
+                      "messages": [{"role": "user", "content": prompt}]
+                  })
+
+                  response = bedrock.invoke_model(
+                      modelId=model_id,
+                      body=body,
+                      contentType="application/json",
+                      accept="application/json"
+                  )
+
+                  result = json.loads(response['body'].read())
+                  gloss_text = result['content'][0]['text'].strip()
+
+                  # Clean and parse
+                  glosses = [g.strip('"\'.,!?').upper() for g in gloss_text.split() if g.strip()]
+
+                  return {
+                      'statusCode': 200,
+                      'gloss_sequence': glosses,
+                      'english_text': english_text
+                  }
+
+              except Exception as e:
+                  print(f"Translation error: {e}")
+                  # Fallback: simple word extraction
+                  words = re.sub(r'[^\w\s]', '', english_text).upper().split()
+                  skip = {'A', 'AN', 'THE', 'IS', 'ARE', 'WAS', 'WERE', 'TO', 'OF'}
+                  glosses = [w for w in words if w not in skip]
+
+                  return {
+                      'statusCode': 200,
+                      'gloss_sequence': glosses,
+                      'english_text': english_text,
+                      'fallback': True
+                  }
+      Tags:
+        - Key: Project
+          Value: GenASL
+
+  LookupSignVideosLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub 'genasl-lookup-sign-videos-${Environment}'
+      Runtime: python3.11
+      Handler: index.handler
+      Role: !GetAtt GenASLLambdaRole.Arn
+      Timeout: 30
+      MemorySize: 256
+      Environment:
+        Variables:
+          SIGNS_TABLE: !Ref GenASLSignsTable
+          VIDEOS_BUCKET: !Ref GenASLVideosBucket
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          import os
+
+          dynamodb = boto3.resource('dynamodb')
+          s3 = boto3.client('s3')
+
+          FINGERSPELLING = list("ABCDEFGHIJKLMNOPQRSTUVWXYZ")
+
+          def handler(event, context):
+              """Look up video files for each gloss in the sequence."""
+              gloss_sequence = event.get('gloss_sequence', [])
+              table = dynamodb.Table(os.environ['SIGNS_TABLE'])
+              bucket = os.environ['VIDEOS_BUCKET']
+
+              video_segments = []
+              total_duration = 0.0
+
+              for gloss in gloss_sequence:
+                  if gloss.startswith('#'):
+                      # Fingerspelling
+                      letters = gloss[1:]
+                      for letter in letters:
+                          if letter.upper() in FINGERSPELLING:
+                              video_key = f"fingerspelling/{letter.upper()}.mp4"
+                              video_segments.append({
+                                  'gloss': f"#{letter}",
+                                  'type': 'fingerspelling',
+                                  'video_key': video_key,
+                                  'duration': 0.5
+                              })
+                              total_duration += 0.5
+                  else:
+                      # Regular sign lookup
+                      try:
+                          response = table.get_item(Key={'gloss': gloss})
+                          if 'Item' in response:
+                              item = response['Item']
+                              video_segments.append({
+                                  'gloss': gloss,
+                                  'type': 'sign',
+                                  'video_key': item.get('video_key'),
+                                  'duration': float(item.get('duration', 1.0))
+                              })
+                              total_duration += float(item.get('duration', 1.0))
+                          else:
+                              # Fingerspell unknown words
+                              for letter in gloss:
+                                  if letter.upper() in FINGERSPELLING:
+                                      video_segments.append({
+                                          'gloss': f"#{letter}",
+                                          'type': 'fingerspelling_fallback',
+                                          'video_key': f"fingerspelling/{letter.upper()}.mp4",
+                                          'duration': 0.5
+                                      })
+                                      total_duration += 0.5
+                      except Exception as e:
+                          print(f"Error looking up {gloss}: {e}")
+
+              return {
+                  'statusCode': 200,
+                  'video_segments': video_segments,
+                  'total_duration': total_duration,
+                  'segment_count': len(video_segments)
+              }
+      Tags:
+        - Key: Project
+          Value: GenASL
+
+  StitchVideoLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub 'genasl-stitch-video-${Environment}'
+      Runtime: python3.11
+      Handler: index.handler
+      Role: !GetAtt GenASLLambdaRole.Arn
+      Timeout: 300
+      MemorySize: 1024
+      Environment:
+        Variables:
+          VIDEOS_BUCKET: !Ref GenASLVideosBucket
+      Layers:
+        - !Sub 'arn:aws:lambda:${AWS::Region}:770693421928:layer:Klayers-p311-ffmpeg:2'
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          import os
+          import subprocess
+          import uuid
+          from datetime import datetime
+
+          s3 = boto3.client('s3')
+
+          def handler(event, context):
+              """Stitch video segments together into final output."""
+              execution_id = event.get('execution_id', str(uuid.uuid4())[:8])
+              video_segments = event.get('video_segments', [])
+              bucket = os.environ['VIDEOS_BUCKET']
+
+              if not video_segments:
+                  return {
+                      'statusCode': 400,
+                      'error': 'No video segments provided'
+                  }
+
+              # Download all segment videos
+              temp_dir = f'/tmp/{execution_id}'
+              os.makedirs(temp_dir, exist_ok=True)
+
+              concat_list = []
+
+              for i, segment in enumerate(video_segments):
+                  video_key = segment.get('video_key')
+                  if not video_key:
+                      continue
+
+                  local_path = f'{temp_dir}/segment_{i:03d}.mp4'
+
+                  try:
+                      s3.download_file(bucket, video_key, local_path)
+                      concat_list.append(f"file '{local_path}'")
+                  except Exception as e:
+                      print(f"Error downloading {video_key}: {e}")
+
+              if not concat_list:
+                  return {
+                      'statusCode': 400,
+                      'error': 'No video segments could be downloaded'
+                  }
+
+              # Create concat file
+              concat_file = f'{temp_dir}/concat.txt'
+              with open(concat_file, 'w') as f:
+                  f.write('\n'.join(concat_list))
+
+              # Stitch videos using ffmpeg
+              output_file = f'{temp_dir}/output.mp4'
+
+              try:
+                  subprocess.run([
+                      'ffmpeg', '-y', '-f', 'concat', '-safe', '0',
+                      '-i', concat_file,
+                      '-c:v', 'libx264', '-preset', 'fast',
+                      '-c:a', 'aac',
+                      '-movflags', '+faststart',
+                      output_file
+                  ], check=True, capture_output=True)
+              except subprocess.CalledProcessError as e:
+                  print(f"FFmpeg error: {e.stderr.decode()}")
+                  return {
+                      'statusCode': 500,
+                      'error': 'Video stitching failed'
+                  }
+
+              # Upload to S3
+              output_key = f"outputs/{datetime.utcnow().strftime('%Y/%m/%d')}/{execution_id}.mp4"
+
+              try:
+                  s3.upload_file(output_file, bucket, output_key,
+                      ExtraArgs={'ContentType': 'video/mp4'})
+
+                  # Generate presigned URL
+                  url = s3.generate_presigned_url(
+                      'get_object',
+                      Params={'Bucket': bucket, 'Key': output_key},
+                      ExpiresIn=3600
+                  )
+
+                  return {
+                      'statusCode': 200,
+                      'video_s3_key': output_key,
+                      'video_url': url,
+                      'duration_seconds': event.get('total_duration', 0)
+                  }
+
+              except Exception as e:
+                  print(f"Upload error: {e}")
+                  return {
+                      'statusCode': 500,
+                      'error': f'Failed to upload video: {str(e)}'
+                  }
+      Tags:
+        - Key: Project
+          Value: GenASL
+
+  # =============================================================================
+  # STEP FUNCTIONS STATE MACHINE
+  # =============================================================================
+
+  GenASLStateMachine:
+    Type: AWS::StepFunctions::StateMachine
+    Properties:
+      StateMachineName: !Sub 'genasl-video-generator-${Environment}'
+      RoleArn: !GetAtt GenASLStepFunctionsRole.Arn
+      DefinitionString: !Sub |
+        {
+          "Comment": "GenASL Video Generation Pipeline",
+          "StartAt": "TranslateToGloss",
+          "States": {
+            "TranslateToGloss": {
+              "Type": "Task",
+              "Resource": "${TranslateToGlossLambda.Arn}",
+              "ResultPath": "$.translation",
+              "Next": "LookupSignVideos",
+              "Catch": [{
+                "ErrorEquals": ["States.ALL"],
+                "ResultPath": "$.error",
+                "Next": "HandleError"
+              }]
+            },
+            "LookupSignVideos": {
+              "Type": "Task",
+              "Resource": "${LookupSignVideosLambda.Arn}",
+              "InputPath": "$.translation",
+              "ResultPath": "$.lookup",
+              "Next": "CheckVideosFound",
+              "Catch": [{
+                "ErrorEquals": ["States.ALL"],
+                "ResultPath": "$.error",
+                "Next": "HandleError"
+              }]
+            },
+            "CheckVideosFound": {
+              "Type": "Choice",
+              "Choices": [{
+                "Variable": "$.lookup.segment_count",
+                "NumericGreaterThan": 0,
+                "Next": "StitchVideo"
+              }],
+              "Default": "NoVideosFound"
+            },
+            "StitchVideo": {
+              "Type": "Task",
+              "Resource": "${StitchVideoLambda.Arn}",
+              "InputPath": "$",
+              "Parameters": {
+                "execution_id.$": "$.execution_id",
+                "video_segments.$": "$.lookup.video_segments",
+                "total_duration.$": "$.lookup.total_duration",
+                "gloss_sequence.$": "$.translation.gloss_sequence"
+              },
+              "ResultPath": "$.output",
+              "Next": "Success",
+              "Catch": [{
+                "ErrorEquals": ["States.ALL"],
+                "ResultPath": "$.error",
+                "Next": "HandleError"
+              }]
+            },
+            "Success": {
+              "Type": "Pass",
+              "Parameters": {
+                "status": "SUCCEEDED",
+                "video_url.$": "$.output.video_url",
+                "video_s3_key.$": "$.output.video_s3_key",
+                "gloss_sequence.$": "$.translation.gloss_sequence",
+                "duration_seconds.$": "$.output.duration_seconds"
+              },
+              "End": true
+            },
+            "NoVideosFound": {
+              "Type": "Fail",
+              "Error": "NoVideosFound",
+              "Cause": "No video segments found for the given gloss sequence"
+            },
+            "HandleError": {
+              "Type": "Fail",
+              "Error": "ProcessingError",
+              "Cause": "An error occurred during video generation"
+            }
+          }
+        }
+      Tags:
+        - Key: Project
+          Value: GenASL
+
+  # =============================================================================
+  # DATA IMPORT LAMBDA (for loading ASLLVD dataset)
+  # =============================================================================
+
+  ImportASLLVDLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub 'genasl-import-asllvd-${Environment}'
+      Runtime: python3.11
+      Handler: index.handler
+      Role: !GetAtt GenASLLambdaRole.Arn
+      Timeout: 900
+      MemorySize: 2048
+      Environment:
+        Variables:
+          SIGNS_TABLE: !Ref GenASLSignsTable
+          VIDEOS_BUCKET: !Ref GenASLVideosBucket
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          import os
+
+          dynamodb = boto3.resource('dynamodb')
+          s3 = boto3.client('s3')
+
+          # Common ASL sign categories and their glosses from ASLLVD
+          ASLLVD_SIGNS = {
+              'greetings': [
+                  'HELLO', 'GOODBYE', 'NICE-TO-MEET-YOU', 'THANK-YOU', 'PLEASE',
+                  'SORRY', 'EXCUSE-ME', 'WELCOME', 'CONGRATULATIONS', 'GOOD-MORNING',
+                  'GOOD-AFTERNOON', 'GOOD-NIGHT', 'SEE-YOU-LATER'
+              ],
+              'questions': [
+                  'WHAT', 'WHERE', 'WHO', 'WHY', 'HOW', 'WHEN', 'WHICH',
+                  'HOW-MUCH', 'HOW-MANY', 'HOW-OLD', 'WHAT-TIME', 'DO-DO'
+              ],
+              'pronouns': [
+                  'I', 'ME', 'YOU', 'HE', 'SHE', 'IT', 'WE', 'THEY',
+                  'MY', 'YOUR', 'HIS', 'HER', 'OUR', 'THEIR', 'MYSELF',
+                  'YOURSELF', 'THIS', 'THAT', 'THESE', 'THOSE'
+              ],
+              'verbs': [
+                  'WANT', 'NEED', 'LIKE', 'LOVE', 'HATE', 'KNOW', 'UNDERSTAND',
+                  'THINK', 'BELIEVE', 'REMEMBER', 'FORGET', 'LEARN', 'TEACH',
+                  'HELP', 'GIVE', 'TAKE', 'GET', 'HAVE', 'MAKE', 'DO', 'GO',
+                  'COME', 'SEE', 'LOOK', 'WATCH', 'HEAR', 'LISTEN', 'SAY', 'TELL',
+                  'ASK', 'ANSWER', 'CALL', 'WAIT', 'STOP', 'START', 'FINISH',
+                  'TRY', 'WORK', 'PLAY', 'READ', 'WRITE', 'EAT', 'DRINK', 'SLEEP',
+                  'WAKE-UP', 'SIT', 'STAND', 'WALK', 'RUN', 'DRIVE', 'FLY',
+                  'BUY', 'SELL', 'PAY', 'COST', 'LIVE', 'DIE', 'BORN', 'GROW',
+                  'CHANGE', 'BECOME', 'FEEL', 'TOUCH', 'SMELL', 'TASTE',
+                  'OPEN', 'CLOSE', 'TURN-ON', 'TURN-OFF', 'BREAK', 'FIX',
+                  'CLEAN', 'COOK', 'WASH', 'DRY', 'CUT', 'DRAW', 'PAINT'
+              ],
+              'adjectives': [
+                  'GOOD', 'BAD', 'HAPPY', 'SAD', 'ANGRY', 'SCARED', 'SURPRISED',
+                  'TIRED', 'SICK', 'FINE', 'OKAY', 'BEAUTIFUL', 'UGLY', 'BIG',
+                  'SMALL', 'TALL', 'SHORT', 'LONG', 'NEW', 'OLD', 'YOUNG',
+                  'HOT', 'COLD', 'WARM', 'COOL', 'FAST', 'SLOW', 'EASY', 'HARD',
+                  'RIGHT', 'WRONG', 'TRUE', 'FALSE', 'SAME', 'DIFFERENT',
+                  'IMPORTANT', 'INTERESTING', 'BORING', 'FUNNY', 'SERIOUS',
+                  'HUNGRY', 'THIRSTY', 'FULL', 'EMPTY', 'CLEAN', 'DIRTY',
+                  'QUIET', 'LOUD', 'DARK', 'LIGHT', 'STRONG', 'WEAK'
+              ],
+              'time': [
+                  'NOW', 'TODAY', 'TOMORROW', 'YESTERDAY', 'WEEK', 'MONTH', 'YEAR',
+                  'MORNING', 'AFTERNOON', 'EVENING', 'NIGHT', 'EARLY', 'LATE',
+                  'BEFORE', 'AFTER', 'ALWAYS', 'NEVER', 'SOMETIMES', 'OFTEN',
+                  'AGAIN', 'STILL', 'ALREADY', 'YET', 'SOON', 'LATER', 'PAST',
+                  'FUTURE', 'PRESENT', 'SECOND', 'MINUTE', 'HOUR', 'DAY'
+              ],
+              'numbers': [
+                  'ONE', 'TWO', 'THREE', 'FOUR', 'FIVE', 'SIX', 'SEVEN', 'EIGHT',
+                  'NINE', 'TEN', 'ELEVEN', 'TWELVE', 'THIRTEEN', 'FOURTEEN', 'FIFTEEN',
+                  'SIXTEEN', 'SEVENTEEN', 'EIGHTEEN', 'NINETEEN', 'TWENTY',
+                  'THIRTY', 'FORTY', 'FIFTY', 'SIXTY', 'SEVENTY', 'EIGHTY', 'NINETY',
+                  'HUNDRED', 'THOUSAND', 'MILLION', 'FIRST', 'SECOND', 'THIRD',
+                  'LAST', 'NEXT', 'FEW', 'MANY', 'MORE', 'LESS', 'ALL', 'SOME',
+                  'NONE', 'BOTH', 'EACH', 'EVERY', 'OTHER', 'HALF', 'DOUBLE'
+              ],
+              'places': [
+                  'HOME', 'HOUSE', 'SCHOOL', 'WORK', 'STORE', 'HOSPITAL', 'CHURCH',
+                  'RESTAURANT', 'LIBRARY', 'PARK', 'CITY', 'COUNTRY', 'WORLD',
+                  'ROOM', 'DOOR', 'WINDOW', 'TABLE', 'CHAIR', 'BED', 'BATHROOM',
+                  'KITCHEN', 'OFFICE', 'STREET', 'ROAD', 'BUILDING', 'FLOOR',
+                  'OUTSIDE', 'INSIDE', 'UP', 'DOWN', 'LEFT', 'RIGHT', 'FRONT', 'BACK'
+              ],
+              'family': [
+                  'FAMILY', 'MOTHER', 'FATHER', 'PARENTS', 'SISTER', 'BROTHER',
+                  'SON', 'DAUGHTER', 'BABY', 'CHILDREN', 'GRANDMOTHER', 'GRANDFATHER',
+                  'AUNT', 'UNCLE', 'COUSIN', 'FRIEND', 'HUSBAND', 'WIFE',
+                  'BOYFRIEND', 'GIRLFRIEND', 'NEIGHBOR', 'BOSS', 'COWORKER'
+              ],
+              'colors': [
+                  'RED', 'BLUE', 'GREEN', 'YELLOW', 'ORANGE', 'PURPLE', 'PINK',
+                  'BLACK', 'WHITE', 'BROWN', 'GRAY', 'GOLD', 'SILVER'
+              ],
+              'food': [
+                  'FOOD', 'WATER', 'MILK', 'JUICE', 'COFFEE', 'TEA', 'BREAD',
+                  'MEAT', 'CHICKEN', 'FISH', 'EGG', 'CHEESE', 'BUTTER', 'RICE',
+                  'PASTA', 'SOUP', 'SALAD', 'FRUIT', 'VEGETABLE', 'APPLE',
+                  'BANANA', 'ORANGE', 'PIZZA', 'HAMBURGER', 'SANDWICH', 'CAKE',
+                  'COOKIE', 'ICE-CREAM', 'CHOCOLATE', 'CANDY', 'SALT', 'PEPPER'
+              ],
+              'common': [
+                  'YES', 'NO', 'MAYBE', 'NOT', 'AND', 'OR', 'BUT', 'BECAUSE',
+                  'IF', 'THEN', 'FOR', 'WITH', 'WITHOUT', 'ABOUT', 'VERY',
+                  'REALLY', 'JUST', 'ONLY', 'ALSO', 'TOO', 'ENOUGH', 'THING',
+                  'SOMETHING', 'NOTHING', 'EVERYTHING', 'SOMEONE', 'ANYONE',
+                  'EVERYONE', 'NOBODY', 'HERE', 'THERE', 'ANYWHERE', 'EVERYWHERE'
+              ],
+              'technology': [
+                  'COMPUTER', 'PHONE', 'INTERNET', 'EMAIL', 'TEXT', 'VIDEO',
+                  'CAMERA', 'PICTURE', 'MOVIE', 'MUSIC', 'GAME', 'TV', 'RADIO'
+              ],
+              'nature': [
+                  'SUN', 'MOON', 'STAR', 'SKY', 'CLOUD', 'RAIN', 'SNOW', 'WIND',
+                  'STORM', 'TREE', 'FLOWER', 'GRASS', 'WATER', 'OCEAN', 'RIVER',
+                  'MOUNTAIN', 'ANIMAL', 'DOG', 'CAT', 'BIRD', 'FISH', 'HORSE'
+              ]
+          }
+
+          def handler(event, context):
+              """Import ASLLVD sign data into DynamoDB."""
+              table = dynamodb.Table(os.environ['SIGNS_TABLE'])
+              bucket = os.environ['VIDEOS_BUCKET']
+
+              imported = 0
+
+              for category, signs in ASLLVD_SIGNS.items():
+                  for gloss in signs:
+                      video_key = f"signs/{category}/{gloss.lower()}.mp4"
+
+                      item = {
+                          'gloss': gloss,
+                          'category': category,
+                          'video_key': video_key,
+                          'duration': 1.5,  # Default duration
+                          'source': 'ASLLVD',
+                          'active': True
+                      }
+
+                      try:
+                          table.put_item(Item=item)
+                          imported += 1
+                      except Exception as e:
+                          print(f"Error importing {gloss}: {e}")
+
+              # Also add fingerspelling alphabet
+              for letter in 'ABCDEFGHIJKLMNOPQRSTUVWXYZ':
+                  item = {
+                      'gloss': f'FS-{letter}',
+                      'category': 'fingerspelling',
+                      'video_key': f'fingerspelling/{letter}.mp4',
+                      'duration': 0.5,
+                      'source': 'ASLLVD',
+                      'active': True
+                  }
+                  try:
+                      table.put_item(Item=item)
+                      imported += 1
+                  except Exception as e:
+                      print(f"Error importing FS-{letter}: {e}")
+
+              return {
+                  'statusCode': 200,
+                  'imported': imported,
+                  'categories': list(ASLLVD_SIGNS.keys())
+              }
+      Tags:
+        - Key: Project
+          Value: GenASL
+
+# =============================================================================
+# OUTPUTS
+# =============================================================================
+
+Outputs:
+  GenASLStateMachineArn:
+    Description: ARN of the GenASL Step Functions state machine
+    Value: !Ref GenASLStateMachine
+    Export:
+      Name: !Sub '${AWS::StackName}-StateMachineArn'
+
+  GenASLVideosBucketName:
+    Description: S3 bucket for GenASL videos
+    Value: !Ref GenASLVideosBucket
+    Export:
+      Name: !Sub '${AWS::StackName}-VideosBucket'
+
+  GenASLSignsTableName:
+    Description: DynamoDB table for sign mappings
+    Value: !Ref GenASLSignsTable
+    Export:
+      Name: !Sub '${AWS::StackName}-SignsTable'
+
+  ImportASLLVDLambdaArn:
+    Description: Lambda function ARN for importing ASLLVD data
+    Value: !GetAtt ImportASLLVDLambda.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-ImportLambda'
+
+  GenASLConfiguration:
+    Description: Environment variables for backend configuration
+    Value: !Sub |
+      GENASL_ENABLED=true
+      GENASL_STATE_MACHINE_ARN=${GenASLStateMachine}
+      GENASL_VIDEOS_BUCKET=${GenASLVideosBucket}
+      GENASL_SIGNS_TABLE=${GenASLSignsTable}
