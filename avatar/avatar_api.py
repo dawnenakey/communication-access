@@ -9,6 +9,8 @@ Endpoints:
 - POST /api/avatar/{id}/sign - Generate signing video
 - GET /api/phrases - List available phrases
 - GET /api/avatar/{id}/videos - Get generated videos
+- POST /api/generate-sign - Generate sign video on-the-fly (SMPL-X)
+- GET /api/signs/available - List all available signs
 
 Usage:
     uvicorn avatar_api:app --host 0.0.0.0 --port 8080
@@ -38,6 +40,7 @@ import uvicorn
 # Module imports (lazy loaded)
 face_capture = None
 face_swap = None
+realtime_generator = None
 
 
 # =============================================================================
@@ -150,6 +153,22 @@ def get_face_swapper():
         from face_swap import FaceSwapper
         face_swap = FaceSwapper()
     return face_swap
+
+
+def get_realtime_generator():
+    """Lazy load real-time avatar generator (SMPL-X)."""
+    global realtime_generator
+    if realtime_generator is None:
+        try:
+            from realtime_avatar_generator import RealtimeAvatarGenerator
+            realtime_generator = RealtimeAvatarGenerator(
+                output_dir=str(Config.DATA_DIR / "generated")
+            )
+            print("✅ Real-time avatar generator loaded")
+        except Exception as e:
+            print(f"⚠️ Real-time generator not available: {e}")
+            realtime_generator = None
+    return realtime_generator
 
 
 def load_avatar_metadata(avatar_id: str) -> Optional[Dict]:
@@ -482,6 +501,228 @@ async def download_video(avatar_id: str, phrase: str):
         media_type="video/mp4",
         filename=f"{phrase.upper()}_avatar.mp4"
     )
+
+
+# =============================================================================
+# Real-Time Sign Generation (SMPL-X)
+# =============================================================================
+
+class GenerateSignRequest(BaseModel):
+    """Request to generate a sign video on-the-fly."""
+    sign: str = Field(..., description="Sign name (e.g., 'HELLO')")
+    quality: str = Field("standard", description="Quality: preview, standard, high, production")
+    avatar_id: Optional[str] = Field(None, description="Avatar ID for face swap (optional)")
+
+
+class GenerateSignResponse(BaseModel):
+    """Response from sign generation."""
+    sign: str
+    video_url: str
+    duration_seconds: float
+    quality: str
+    generated_at: str
+
+
+@app.get("/api/signs/available")
+async def list_available_signs():
+    """
+    Get list of all signs that can be generated dynamically.
+    These don't require pre-recorded videos - generated via SMPL-X.
+    """
+    generator = get_realtime_generator()
+
+    if generator is None:
+        # Fallback to pre-recorded phrases
+        return {
+            "realtime_available": False,
+            "signs": [p.phrase for p in get_available_phrases() if p.has_video],
+            "count": len([p for p in get_available_phrases() if p.has_video]),
+            "message": "Real-time generation not available. Using pre-recorded videos."
+        }
+
+    signs = generator.get_available_signs()
+    sign_details = []
+
+    for sign_name in signs:
+        info = generator.get_sign_info(sign_name)
+        if info:
+            sign_details.append(info)
+
+    return {
+        "realtime_available": True,
+        "signs": signs,
+        "count": len(signs),
+        "details": sign_details,
+        "categories": {
+            "greetings": ["HELLO", "GOODBYE", "NICE_TO_MEET_YOU"],
+            "common": ["THANK_YOU", "PLEASE", "SORRY", "YES", "NO"],
+            "questions": ["WHAT", "WHERE", "WHO", "WHY", "HOW", "WHEN"],
+            "feelings": ["I_LOVE_YOU", "HAPPY", "SAD", "UNDERSTAND"],
+            "actions": ["HELP", "WANT", "NEED", "LIKE", "KNOW", "LEARN", "FINISH"],
+            "pronouns": ["ME", "YOU", "MY", "YOUR", "WE"],
+            "descriptors": ["GOOD", "BAD", "MORE", "AGAIN"],
+            "daily": ["EAT", "DRINK", "SLEEP", "WORK"],
+            "movement": ["WAIT", "STOP", "GO", "COME", "NAME"]
+        }
+    }
+
+
+@app.post("/api/generate-sign", response_model=GenerateSignResponse)
+async def generate_sign_realtime(request: GenerateSignRequest):
+    """
+    Generate a sign video on-the-fly using SMPL-X avatar.
+
+    No pre-recorded videos needed - this generates any supported sign dynamically.
+    Optionally applies face swap if avatar_id is provided.
+    """
+    import time
+    start_time = time.time()
+
+    generator = get_realtime_generator()
+
+    if generator is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Real-time avatar generation not available"
+        )
+
+    sign_name = request.sign.upper()
+
+    # Validate sign exists
+    if sign_name not in generator.get_available_signs():
+        available = generator.get_available_signs()
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "message": f"Sign '{sign_name}' not available",
+                "available_signs": available[:20],
+                "total_available": len(available)
+            }
+        )
+
+    # Map quality string to enum
+    from realtime_avatar_generator import RenderQuality
+    quality_map = {
+        "preview": RenderQuality.PREVIEW,
+        "standard": RenderQuality.STANDARD,
+        "high": RenderQuality.HIGH,
+        "production": RenderQuality.PRODUCTION
+    }
+    quality = quality_map.get(request.quality, RenderQuality.STANDARD)
+
+    # Generate video
+    try:
+        video_path = await asyncio.get_event_loop().run_in_executor(
+            None,
+            lambda: generator.generate_sign_video(sign_name, quality)
+        )
+
+        if not video_path:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to generate video for {sign_name}"
+            )
+
+        # Optionally apply face swap
+        if request.avatar_id:
+            metadata = load_avatar_metadata(request.avatar_id)
+            if metadata:
+                face_path = Config.DATA_DIR / "avatars" / request.avatar_id / "face.png"
+                if face_path.exists():
+                    try:
+                        swapper = get_face_swapper()
+                        output_path = Config.DATA_DIR / "generated" / f"{sign_name.lower()}_{request.avatar_id}.mp4"
+                        swapper.swap_video(str(face_path), video_path, str(output_path))
+                        video_path = str(output_path)
+                    except Exception as e:
+                        print(f"Face swap failed: {e}")
+                        # Continue with original video
+
+        # Get sign info for duration
+        sign_info = generator.get_sign_info(sign_name)
+        duration = sign_info["duration_seconds"] if sign_info else 1.0
+
+        processing_time = time.time() - start_time
+        print(f"Generated {sign_name} in {processing_time:.1f}s")
+
+        # Create URL path
+        relative_path = Path(video_path).relative_to(Config.DATA_DIR)
+        video_url = f"/static/{relative_path}"
+
+        return GenerateSignResponse(
+            sign=sign_name,
+            video_url=video_url,
+            duration_seconds=duration,
+            quality=request.quality,
+            generated_at=datetime.utcnow().isoformat()
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/generate-sequence")
+async def generate_sign_sequence(
+    signs: List[str],
+    quality: str = "standard"
+):
+    """
+    Generate a video for a sequence of signs (e.g., a sentence in ASL).
+
+    Example: ["HELLO", "HOW", "YOU"] -> Single video saying "Hello, how are you?"
+    """
+    generator = get_realtime_generator()
+
+    if generator is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Real-time avatar generation not available"
+        )
+
+    # Validate all signs
+    available = set(generator.get_available_signs())
+    invalid_signs = [s.upper() for s in signs if s.upper() not in available]
+
+    if invalid_signs:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "message": f"Some signs not available: {invalid_signs}",
+                "available_signs": list(available)
+            }
+        )
+
+    # Map quality
+    from realtime_avatar_generator import RenderQuality
+    quality_enum = RenderQuality(quality.lower())
+
+    # Generate sequence
+    try:
+        video_path = await asyncio.get_event_loop().run_in_executor(
+            None,
+            lambda: generator.generate_sign_sequence(
+                [s.upper() for s in signs],
+                quality_enum
+            )
+        )
+
+        if not video_path:
+            raise HTTPException(status_code=500, detail="Failed to generate sequence")
+
+        relative_path = Path(video_path).relative_to(Config.DATA_DIR)
+
+        return {
+            "signs": [s.upper() for s in signs],
+            "video_url": f"/static/{relative_path}",
+            "quality": quality
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # =============================================================================
