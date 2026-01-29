@@ -19,8 +19,9 @@ const API = import.meta.env?.VITE_API_URL || process.env.REACT_APP_API_URL || "h
  *
  * Features:
  * - Sign via webcam → System recognizes → Responds in ASL
- * - Type text → System responds in ASL
+ * - Type text → System responds in ASL video (GenASL)
  * - No login required for demo
+ * - Uses GenASL for realistic avatar videos with 3,300+ signs
  */
 export default function ConversationalDemo() {
   // Camera states
@@ -41,15 +42,14 @@ export default function ConversationalDemo() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [conversationId, setConversationId] = useState(null);
 
-  // Available signs for highlighting
-  const [availableSigns] = useState([
-    "HELLO", "GOODBYE", "NICE_TO_MEET_YOU", "THANK_YOU", "PLEASE", "SORRY",
-    "YES", "NO", "HELP", "WHAT", "WHERE", "WHO", "WHY", "HOW", "WHEN",
-    "I_LOVE_YOU", "HAPPY", "SAD", "UNDERSTAND", "WANT", "NEED", "LIKE",
-    "KNOW", "LEARN", "FINISH", "NAME", "MY", "YOUR", "YOU", "ME", "WE",
-    "GOOD", "BAD", "MORE", "AGAIN", "WAIT", "STOP", "GO", "COME",
-    "EAT", "DRINK", "SLEEP", "WORK"
-  ]);
+  // GenASL configuration
+  const [useGenASL, setUseGenASL] = useState(true);
+  const [genaslEnabled, setGenaslEnabled] = useState(true);
+  const [currentVideo, setCurrentVideo] = useState(null);
+
+  // Available signs - GenASL has 3,300+ signs from ASLLVD dataset
+  const [availableSigns, setAvailableSigns] = useState([]);
+  const [signCount, setSignCount] = useState(3300); // GenASL default
 
   // Frame capture for sign recognition
   const [frameBuffer, setFrameBuffer] = useState([]);
@@ -67,6 +67,35 @@ export default function ConversationalDemo() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
+
+  // Load available signs from GenASL on mount
+  useEffect(() => {
+    loadAvailableSigns();
+    checkGenASLHealth();
+  }, []);
+
+  const loadAvailableSigns = async () => {
+    try {
+      const response = await axios.get(`${API}/api/genasl/signs`);
+      if (response.data?.signs) {
+        setAvailableSigns(response.data.signs);
+        setSignCount(response.data.count || response.data.signs.length);
+      }
+    } catch (error) {
+      console.log("Using fallback signs list");
+      // Fallback to local list if GenASL not available
+    }
+  };
+
+  const checkGenASLHealth = async () => {
+    try {
+      const response = await axios.get(`${API}/api/genasl/health`);
+      setGenaslEnabled(response.data?.enabled && response.data?.configured);
+    } catch (error) {
+      console.log("GenASL health check failed, using fallback mode");
+      setGenaslEnabled(false);
+    }
+  };
 
   // Camera controls
   const startCamera = async () => {
@@ -158,7 +187,7 @@ export default function ConversationalDemo() {
     setFrameBuffer([]);
   }, [frameBuffer]);
 
-  // Process conversation - works without auth for demo
+  // Process conversation - uses GenASL for realistic avatar videos
   const processConversation = async (frames, text) => {
     setIsProcessing(true);
 
@@ -173,12 +202,16 @@ export default function ConversationalDemo() {
         payload.text = text;
       }
 
-      // Try authenticated endpoint first, fall back to demo mode
+      // Use GenASL endpoint for realistic avatar videos (3,300+ signs)
       let response;
+      const endpoint = useGenASL && genaslEnabled
+        ? `${API}/api/conversation/genasl`
+        : `${API}/api/conversation`;
+
       try {
-        response = await axios.post(`${API}/api/conversation`, payload, {
+        response = await axios.post(endpoint, payload, {
           withCredentials: true,
-          timeout: 30000
+          timeout: 60000 // GenASL may take longer for video generation
         });
       } catch (authError) {
         // If auth fails, use demo/fallback response
@@ -192,7 +225,7 @@ export default function ConversationalDemo() {
         setConversationId(data.conversation_id);
       }
 
-      // Add messages
+      // Add messages with video URL from GenASL
       const newUserMessage = {
         id: Date.now(),
         role: "user",
@@ -206,11 +239,20 @@ export default function ConversationalDemo() {
         role: "system",
         content: data.system_response?.content || "I understand!",
         asl_gloss: data.system_response?.asl_gloss || ["UNDERSTAND"],
+        video_url: data.system_response?.video_url || null,
         timestamp: new Date().toISOString()
       };
 
       setMessages(prev => [...prev, newUserMessage, newSystemMessage]);
-      toast.success(`Response: ${newSystemMessage.asl_gloss.join(" ")}`);
+
+      // Show notification with video indicator if available
+      const videoIndicator = newSystemMessage.video_url ? " (video ready)" : "";
+      toast.success(`Response: ${newSystemMessage.asl_gloss.slice(0, 5).join(" ")}${newSystemMessage.asl_gloss.length > 5 ? '...' : ''}${videoIndicator}`);
+
+      // Auto-play video if available
+      if (newSystemMessage.video_url) {
+        setCurrentVideo(newSystemMessage.video_url);
+      }
 
     } catch (error) {
       console.error("Conversation error:", error);
@@ -522,6 +564,17 @@ export default function ConversationalDemo() {
                             <Volume2 className="w-3 h-3 mr-1" />
                             Speak
                           </Button>
+                          {msg.video_url && (
+                            <Button
+                              onClick={() => setCurrentVideo(msg.video_url)}
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 text-xs hover:bg-white/10 text-cyan-400"
+                            >
+                              <Video className="w-3 h-3 mr-1" />
+                              Watch ASL
+                            </Button>
+                          )}
                         </div>
                       )}
                     </div>
@@ -540,14 +593,65 @@ export default function ConversationalDemo() {
             {/* Footer */}
             <div className="p-3 border-t border-white/10 text-center">
               <p className="text-xs text-slate-500">
-                <span className="text-green-400">{availableSigns.length}</span> ASL signs supported
+                <span className="text-green-400">{signCount.toLocaleString()}+</span> ASL signs supported
                 <span className="mx-2">•</span>
-                Powered by AWS Bedrock
+                {genaslEnabled ? (
+                  <span className="text-cyan-400">GenASL Realistic Avatar</span>
+                ) : (
+                  <span>Powered by AWS Bedrock</span>
+                )}
+                <span className="mx-2">•</span>
+                ASLLVD Dataset
               </p>
             </div>
           </div>
         </div>
       </main>
+
+      {/* Video Modal for GenASL avatar responses */}
+      {currentVideo && (
+        <div
+          className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50"
+          onClick={() => setCurrentVideo(null)}
+        >
+          <div
+            className="bg-slate-900 border border-white/10 rounded-2xl p-4 max-w-2xl w-full mx-4 shadow-2xl"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex justify-between items-center mb-4">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-cyan-500 to-blue-500 flex items-center justify-center">
+                  <Hand className="w-4 h-4 text-white" />
+                </div>
+                <div>
+                  <h4 className="font-bold">ASL Avatar Response</h4>
+                  <p className="text-xs text-slate-400">Realistic signing from GenASL</p>
+                </div>
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setCurrentVideo(null)}
+                className="hover:bg-white/10"
+              >
+                Close
+              </Button>
+            </div>
+            <video
+              src={currentVideo}
+              controls
+              autoPlay
+              className="w-full rounded-xl bg-black"
+              onEnded={() => setCurrentVideo(null)}
+            >
+              Your browser does not support video playback.
+            </video>
+            <p className="text-xs text-slate-500 mt-3 text-center">
+              Video generated using AWS GenASL with ASLLVD dataset (3,300+ signs)
+            </p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

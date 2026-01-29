@@ -14,11 +14,16 @@ import {
  * ConversationMode - Bidirectional Sign Language Communication
  *
  * This component enables:
- * 1. Deaf user signs -> System recognizes -> Responds in signs (via avatar video)
- * 2. Hearing user types -> Response shown as signs
+ * 1. Deaf user signs -> System recognizes -> Responds in signs (via GenASL avatar video)
+ * 2. Hearing user types -> Response shown as realistic ASL video
  *
  * The conversation loop:
- * User signs/types -> Recognition -> LLM Response -> ASL Translation -> Avatar Video
+ * User signs/types -> Recognition -> LLM Response -> GenASL Video Generation -> Realistic Avatar
+ *
+ * Uses GenASL (AWS GenAI ASL Avatar) for:
+ * - 3,300+ signs from ASLLVD dataset
+ * - Realistic human signing videos
+ * - Full sentence support
  */
 export default function ConversationMode() {
   // Camera states
@@ -31,6 +36,10 @@ export default function ConversationMode() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [conversationId, setConversationId] = useState(null);
   const [availableSigns, setAvailableSigns] = useState([]);
+
+  // GenASL configuration
+  const [genaslEnabled, setGenaslEnabled] = useState(true);
+  const [signCount, setSignCount] = useState(3300);
 
   // Video playback
   const [currentVideo, setCurrentVideo] = useState(null);
@@ -49,9 +58,10 @@ export default function ConversationMode() {
   const responseVideoRef = useRef(null);
   const messagesEndRef = useRef(null);
 
-  // Load available signs on mount
+  // Load available signs from GenASL on mount
   useEffect(() => {
     loadAvailableSigns();
+    checkGenASLHealth();
   }, []);
 
   // Auto-scroll to latest message
@@ -61,10 +71,31 @@ export default function ConversationMode() {
 
   const loadAvailableSigns = async () => {
     try {
-      const response = await axios.get(`${API}/conversation/signs/available`);
-      setAvailableSigns(response.data.signs || []);
+      // Try GenASL endpoint first (3,300+ signs)
+      const response = await axios.get(`${API}/genasl/signs`);
+      if (response.data?.signs) {
+        setAvailableSigns(response.data.signs);
+        setSignCount(response.data.count || response.data.signs.length);
+      }
     } catch (error) {
-      console.error("Failed to load available signs:", error);
+      // Fallback to legacy endpoint
+      try {
+        const fallbackResponse = await axios.get(`${API}/conversation/signs/available`);
+        setAvailableSigns(fallbackResponse.data.signs || []);
+        setSignCount(fallbackResponse.data.signs?.length || 50);
+      } catch (fallbackError) {
+        console.error("Failed to load available signs:", fallbackError);
+      }
+    }
+  };
+
+  const checkGenASLHealth = async () => {
+    try {
+      const response = await axios.get(`${API}/genasl/health`);
+      setGenaslEnabled(response.data?.enabled && response.data?.configured);
+    } catch (error) {
+      console.log("GenASL not available, using fallback");
+      setGenaslEnabled(false);
     }
   };
 
@@ -160,14 +191,14 @@ export default function ConversationMode() {
     setFrameBuffer([]);
   }, [frameBuffer]);
 
-  // Process conversation (either from sign recognition or text)
+  // Process conversation - uses GenASL for realistic avatar videos
   const processConversation = async (frames, text) => {
     setIsProcessing(true);
 
     try {
       const payload = {
         conversation_id: conversationId,
-        avatar_id: null // Could be set if user has created an avatar
+        avatar_id: null
       };
 
       if (frames && frames.length > 0) {
@@ -176,7 +207,11 @@ export default function ConversationMode() {
         payload.text = text;
       }
 
-      const response = await axios.post(`${API}/conversation`, payload);
+      // Use GenASL endpoint for realistic videos (3,300+ signs from ASLLVD)
+      const endpoint = genaslEnabled ? `${API}/conversation/genasl` : `${API}/conversation`;
+      const response = await axios.post(endpoint, payload, {
+        timeout: 60000 // GenASL video generation may take longer
+      });
       const data = response.data;
 
       // Update conversation ID
@@ -489,7 +524,10 @@ export default function ConversationMode() {
         {/* Available Signs Footer */}
         <div className="p-3 border-t border-white/5">
           <p className="text-xs text-muted-foreground">
-            <span className="text-green-400">{availableSigns.length}</span> signs available for avatar responses
+            <span className="text-green-400">{signCount.toLocaleString()}+</span> signs available
+            {genaslEnabled && (
+              <span className="ml-2 text-cyan-400">GenASL Realistic Avatar</span>
+            )}
           </p>
         </div>
       </div>

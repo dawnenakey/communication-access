@@ -22,12 +22,21 @@ except ImportError:
     BEDROCK_AVAILABLE = False
     print("Warning: boto3 not available - LLM translation disabled")
 
+# GenASL Service for realistic avatar videos
+from genasl_service import GenASLService, get_genasl_service, GenASLStatus, GenASLVideoResult
+
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
 # SonZo SLR API Configuration
 SONZO_SLR_API_URL = os.environ.get('SONZO_SLR_API_URL', 'https://api.sonzo.io')
 SONZO_SLR_API_KEY = os.environ.get('SONZO_SLR_API_KEY', '')
+
+# GenASL Configuration (AWS GenAI ASL Avatar)
+GENASL_ENABLED = os.environ.get('GENASL_ENABLED', 'true').lower() == 'true'
+GENASL_STATE_MACHINE_ARN = os.environ.get('GENASL_STATE_MACHINE_ARN', '')
+GENASL_VIDEOS_BUCKET = os.environ.get('GENASL_VIDEOS_BUCKET', 'genasl-videos')
+GENASL_SIGNS_TABLE = os.environ.get('GENASL_SIGNS_TABLE', 'genasl-signs')
 
 # MongoDB connection
 mongo_url = os.environ['MONGO_URL']
@@ -137,6 +146,41 @@ class ConversationResponse(BaseModel):
     user_message: ConversationMessage
     system_response: ConversationMessage
     available_signs: List[str]
+    processing_time_ms: float
+
+# ============== GENASL MODELS ==============
+
+class GenASLGenerateRequest(BaseModel):
+    text: str = Field(..., description="English text to translate and generate ASL video")
+    audio_base64: Optional[str] = Field(None, description="Base64 encoded audio for speech input")
+    wait_for_completion: bool = Field(True, description="Wait for video generation to complete")
+    max_wait_seconds: int = Field(60, ge=5, le=300, description="Max seconds to wait for completion")
+
+class GenASLGenerateResponse(BaseModel):
+    execution_id: str
+    status: str
+    video_url: Optional[str] = None
+    gloss_sequence: Optional[List[str]] = None
+    duration_seconds: Optional[float] = None
+    error_message: Optional[str] = None
+    processing_time_ms: float
+
+class GenASLStatusResponse(BaseModel):
+    execution_id: str
+    status: str
+    video_url: Optional[str] = None
+    gloss_sequence: Optional[List[str]] = None
+    duration_seconds: Optional[float] = None
+    error_message: Optional[str] = None
+
+class GenASLTranslateRequest(BaseModel):
+    text: str = Field(..., description="English text to translate to ASL gloss")
+
+class GenASLTranslateResponse(BaseModel):
+    english: str
+    gloss_sequence: List[str]
+    available_videos: List[Dict[str, Any]]
+    fingerspelling_needed: List[str]
     processing_time_ms: float
 
 # ============== BEDROCK TRANSLATOR ==============
@@ -1090,11 +1134,389 @@ async def get_available_signs():
     }
 
 
+# ============== GENASL ROUTES ==============
+
+@api_router.post("/genasl/generate", response_model=GenASLGenerateResponse)
+async def generate_asl_video(
+    request: GenASLGenerateRequest,
+    user: User = Depends(get_current_user)
+):
+    """
+    Generate realistic ASL avatar video from English text or speech.
+
+    Uses AWS GenASL pipeline with 3,300+ signs from ASLLVD dataset.
+    Returns presigned S3 URL for the generated video.
+    """
+    import time
+    start_time = time.time()
+
+    if not GENASL_ENABLED:
+        raise HTTPException(
+            status_code=503,
+            detail="GenASL service is disabled. Set GENASL_ENABLED=true"
+        )
+
+    genasl = get_genasl_service()
+
+    if not genasl.is_available():
+        raise HTTPException(
+            status_code=503,
+            detail="GenASL service not configured. Set GENASL_STATE_MACHINE_ARN"
+        )
+
+    # Decode audio if provided
+    audio_bytes = None
+    if request.audio_base64:
+        try:
+            audio_bytes = base64.b64decode(request.audio_base64)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Invalid audio base64: {e}")
+
+    # Generate video
+    result = await genasl.generate_sentence_video(
+        english_text=request.text,
+        audio_input=audio_bytes,
+        execution_wait=request.wait_for_completion,
+        max_wait_seconds=request.max_wait_seconds
+    )
+
+    # Save to history
+    if result.status == GenASLStatus.SUCCEEDED:
+        history_doc = {
+            "history_id": f"hist_{uuid.uuid4().hex[:12]}",
+            "user_id": user.user_id,
+            "input_type": "text_to_asl_video",
+            "input_content": request.text,
+            "output_content": json.dumps({
+                "gloss": result.gloss_sequence,
+                "video_url": result.video_url
+            }),
+            "created_at": datetime.now(timezone.utc).isoformat()
+        }
+        await db.translation_history.insert_one(history_doc)
+
+    return GenASLGenerateResponse(
+        execution_id=result.execution_id,
+        status=result.status.value,
+        video_url=result.video_url,
+        gloss_sequence=result.gloss_sequence,
+        duration_seconds=result.duration_seconds,
+        error_message=result.error_message,
+        processing_time_ms=(time.time() - start_time) * 1000
+    )
+
+
+@api_router.get("/genasl/status/{execution_id}", response_model=GenASLStatusResponse)
+async def get_genasl_status(
+    execution_id: str,
+    user: User = Depends(get_current_user)
+):
+    """
+    Check the status of a GenASL video generation execution.
+
+    Use this to poll for async execution results when wait_for_completion=false.
+    """
+    if not GENASL_ENABLED:
+        raise HTTPException(status_code=503, detail="GenASL service is disabled")
+
+    genasl = get_genasl_service()
+    result = await genasl.get_execution_status(execution_id)
+
+    return GenASLStatusResponse(
+        execution_id=result.execution_id,
+        status=result.status.value,
+        video_url=result.video_url,
+        gloss_sequence=result.gloss_sequence,
+        duration_seconds=result.duration_seconds,
+        error_message=result.error_message
+    )
+
+
+@api_router.post("/genasl/translate", response_model=GenASLTranslateResponse)
+async def translate_to_asl_gloss(
+    request: GenASLTranslateRequest,
+    user: User = Depends(get_current_user)
+):
+    """
+    Translate English text to ASL gloss sequence.
+
+    Uses AWS Bedrock (Claude Sonnet) for intelligent translation.
+    Returns gloss sequence with video availability information.
+    """
+    import time
+    start_time = time.time()
+
+    if not GENASL_ENABLED:
+        raise HTTPException(status_code=503, detail="GenASL service is disabled")
+
+    genasl = get_genasl_service()
+
+    # Translate to gloss
+    gloss_sequence = await genasl.translate_to_gloss(request.text)
+
+    # Check video availability for each gloss
+    available_videos = []
+    fingerspelling_needed = []
+
+    for gloss in gloss_sequence:
+        if gloss.startswith('#'):
+            # Fingerspelling
+            fingerspelling_needed.append(gloss[1:])
+            available_videos.append({
+                "gloss": gloss,
+                "type": "fingerspelling",
+                "available": True
+            })
+        else:
+            video_info = await genasl.lookup_sign_video(gloss)
+            if video_info:
+                available_videos.append({
+                    "gloss": gloss,
+                    "type": "sign",
+                    "available": True,
+                    "video_url": video_info.get('video_url'),
+                    "duration": video_info.get('duration')
+                })
+            else:
+                available_videos.append({
+                    "gloss": gloss,
+                    "type": "sign",
+                    "available": False
+                })
+
+    return GenASLTranslateResponse(
+        english=request.text,
+        gloss_sequence=gloss_sequence,
+        available_videos=available_videos,
+        fingerspelling_needed=fingerspelling_needed,
+        processing_time_ms=(time.time() - start_time) * 1000
+    )
+
+
+@api_router.get("/genasl/signs")
+async def get_genasl_available_signs():
+    """
+    Get all available ASL signs from the GenASL ASLLVD dataset.
+
+    Returns 3,300+ signs organized by category.
+    """
+    if not GENASL_ENABLED:
+        raise HTTPException(status_code=503, detail="GenASL service is disabled")
+
+    genasl = get_genasl_service()
+    return await genasl.get_available_signs()
+
+
+@api_router.get("/genasl/signs/{gloss}")
+async def get_sign_video(
+    gloss: str,
+    user: User = Depends(get_current_user)
+):
+    """
+    Get the video URL for a specific ASL sign.
+
+    Returns presigned S3 URL for the sign video.
+    """
+    if not GENASL_ENABLED:
+        raise HTTPException(status_code=503, detail="GenASL service is disabled")
+
+    genasl = get_genasl_service()
+    video_info = await genasl.lookup_sign_video(gloss.upper())
+
+    if not video_info:
+        raise HTTPException(status_code=404, detail=f"Sign '{gloss}' not found in database")
+
+    return video_info
+
+
+@api_router.get("/genasl/health")
+async def genasl_health_check():
+    """Check GenASL service health and configuration."""
+    if not GENASL_ENABLED:
+        return {
+            "status": "disabled",
+            "message": "GenASL is disabled. Set GENASL_ENABLED=true to enable."
+        }
+
+    genasl = get_genasl_service()
+    health = await genasl.health_check()
+    health["enabled"] = GENASL_ENABLED
+
+    return health
+
+
+# ============== UPDATED CONVERSATION WITH GENASL ==============
+
+@api_router.post("/conversation/genasl", response_model=ConversationResponse)
+async def process_conversation_with_genasl(
+    request: ConversationRequest,
+    user: User = Depends(get_current_user)
+):
+    """
+    Process a bidirectional conversation with realistic GenASL avatar responses.
+
+    Same as /conversation but uses GenASL for video generation:
+    - 3,300+ available signs vs ~50 previously
+    - Realistic human avatar from ASLLVD dataset
+    - Full sentence support instead of single signs
+
+    Flow:
+    1. User signs (frames) OR types text
+    2. System recognizes sign / processes text
+    3. System generates response in English
+    4. GenASL translates to ASL and generates realistic video
+    5. Returns response with video URL
+    """
+    import time
+    start_time = time.time()
+
+    if not GENASL_ENABLED:
+        # Fall back to regular conversation endpoint
+        return await process_conversation(request, user)
+
+    genasl = get_genasl_service()
+    translator = get_translator()
+    user_text = ""
+    user_asl_gloss = []
+
+    # Step 1: Get user's message (either from sign recognition or text)
+    if request.frames and len(request.frames) > 0:
+        # Recognize sign from video frames via SonZo SLR API
+        if not SONZO_SLR_API_KEY:
+            raise HTTPException(status_code=503, detail="SLR service not configured")
+
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as http_client:
+                response = await http_client.post(
+                    f"{SONZO_SLR_API_URL}/api/slr/recognize",
+                    json={
+                        "frames": request.frames,
+                        "return_alternatives": False,
+                        "confidence_threshold": 0.5
+                    },
+                    headers={
+                        "X-API-Key": SONZO_SLR_API_KEY,
+                        "Content-Type": "application/json"
+                    }
+                )
+
+                if response.status_code == 200:
+                    result = response.json()
+                    recognized_sign = result.get("sign", "UNKNOWN")
+                    if recognized_sign != "UNKNOWN":
+                        user_asl_gloss = [recognized_sign]
+                        user_text = translator.asl_gloss_to_english(user_asl_gloss)
+                    else:
+                        user_text = "Hello"
+                        user_asl_gloss = ["HELLO"]
+                else:
+                    user_text = "Hello"
+                    user_asl_gloss = ["HELLO"]
+
+        except Exception as e:
+            logger.error(f"SLR recognition error: {e}")
+            user_text = "Hello"
+            user_asl_gloss = ["HELLO"]
+
+    elif request.text:
+        user_text = request.text
+        user_asl_gloss = await genasl.translate_to_gloss(request.text)
+    else:
+        raise HTTPException(status_code=400, detail="Either 'frames' or 'text' is required")
+
+    # Step 2: Generate or retrieve conversation context
+    conversation_id = request.conversation_id or f"conv_{uuid.uuid4().hex[:12]}"
+
+    conversation_doc = await db.conversations.find_one(
+        {"conversation_id": conversation_id, "user_id": user.user_id}
+    )
+
+    context = []
+    if conversation_doc:
+        context = conversation_doc.get("messages", [])
+
+    # Step 3: Generate system response
+    response_english = translator.generate_response(user_text, context)
+
+    # Step 4: Generate ASL video using GenASL
+    video_result = await genasl.generate_sentence_video(
+        english_text=response_english,
+        execution_wait=True,
+        max_wait_seconds=45
+    )
+
+    response_asl_gloss = video_result.gloss_sequence or await genasl.translate_to_gloss(response_english)
+    video_url = video_result.video_url
+
+    # Create message objects
+    user_message = ConversationMessage(
+        role="user",
+        content=user_text,
+        asl_gloss=user_asl_gloss
+    )
+
+    system_response = ConversationMessage(
+        role="system",
+        content=response_english,
+        asl_gloss=response_asl_gloss,
+        video_url=video_url
+    )
+
+    # Save conversation
+    new_messages = [
+        {
+            "role": "user",
+            "content": user_text,
+            "asl_gloss": user_asl_gloss,
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        },
+        {
+            "role": "system",
+            "content": response_english,
+            "asl_gloss": response_asl_gloss,
+            "video_url": video_url,
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+    ]
+
+    if conversation_doc:
+        await db.conversations.update_one(
+            {"conversation_id": conversation_id},
+            {"$push": {"messages": {"$each": new_messages}}}
+        )
+    else:
+        await db.conversations.insert_one({
+            "conversation_id": conversation_id,
+            "user_id": user.user_id,
+            "messages": new_messages,
+            "created_at": datetime.now(timezone.utc).isoformat()
+        })
+
+    # Get available signs from GenASL
+    available_signs_data = await genasl.get_available_signs()
+    available_signs = available_signs_data.get('signs', AVAILABLE_SIGNS)[:100]  # Return subset
+
+    processing_time = (time.time() - start_time) * 1000
+
+    return ConversationResponse(
+        conversation_id=conversation_id,
+        user_message=user_message,
+        system_response=system_response,
+        available_signs=available_signs,
+        processing_time_ms=processing_time
+    )
+
+
 # ============== UTILITY ROUTES ==============
 
 @api_router.get("/")
 async def root():
-    return {"message": "SignSync AI API", "version": "1.0.0", "features": ["slr", "conversation", "avatar"]}
+    return {
+        "message": "SignSync AI API",
+        "version": "2.0.0",
+        "features": ["slr", "conversation", "avatar", "genasl"],
+        "genasl_enabled": GENASL_ENABLED
+    }
 
 @api_router.get("/health")
 async def health_check():
