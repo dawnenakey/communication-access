@@ -14,6 +14,18 @@ import base64
 import httpx
 import json
 
+# Password hashing
+from passlib.context import CryptContext
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+# Stripe
+try:
+    import stripe
+    STRIPE_AVAILABLE = True
+except ImportError:
+    STRIPE_AVAILABLE = False
+    print("Warning: stripe not available - payment processing disabled")
+
 # AWS Bedrock for translation
 try:
     import boto3
@@ -37,6 +49,19 @@ GENASL_ENABLED = os.environ.get('GENASL_ENABLED', 'true').lower() == 'true'
 GENASL_STATE_MACHINE_ARN = os.environ.get('GENASL_STATE_MACHINE_ARN', '')
 GENASL_VIDEOS_BUCKET = os.environ.get('GENASL_VIDEOS_BUCKET', 'genasl-videos')
 GENASL_SIGNS_TABLE = os.environ.get('GENASL_SIGNS_TABLE', 'genasl-signs')
+
+# Stripe Configuration
+STRIPE_SECRET_KEY = os.environ.get('STRIPE_SECRET_KEY', '')
+STRIPE_PUBLISHABLE_KEY = os.environ.get('STRIPE_PUBLISHABLE_KEY', '')
+STRIPE_WEBHOOK_SECRET = os.environ.get('STRIPE_WEBHOOK_SECRET', '')
+STRIPE_PRO_PRICE_ID = os.environ.get('STRIPE_PRO_PRICE_ID', '')
+STRIPE_PRO_ANNUAL_PRICE_ID = os.environ.get('STRIPE_PRO_ANNUAL_PRICE_ID', '')
+STRIPE_ENTERPRISE_PRICE_ID = os.environ.get('STRIPE_ENTERPRISE_PRICE_ID', '')
+STRIPE_ENTERPRISE_ANNUAL_PRICE_ID = os.environ.get('STRIPE_ENTERPRISE_ANNUAL_PRICE_ID', '')
+FRONTEND_URL = os.environ.get('FRONTEND_URL', 'http://localhost:3000')
+
+if STRIPE_AVAILABLE and STRIPE_SECRET_KEY:
+    stripe.api_key = STRIPE_SECRET_KEY
 
 # MongoDB connection
 mongo_url = os.environ['MONGO_URL']
@@ -63,6 +88,11 @@ class User(BaseModel):
     email: str
     name: str
     picture: Optional[str] = None
+    password_hash: Optional[str] = None
+    stripe_customer_id: Optional[str] = None
+    subscription_plan: str = "free"  # free, pro, enterprise
+    subscription_status: str = "active"  # active, inactive, canceled, past_due
+    subscription_id: Optional[str] = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 class UserSession(BaseModel):
@@ -574,7 +604,9 @@ async def create_session(request: Request, response: Response):
 @api_router.get("/auth/me")
 async def get_me(user: User = Depends(get_current_user)):
     """Get current authenticated user"""
-    return user.model_dump()
+    data = user.model_dump()
+    data.pop("password_hash", None)
+    return data
 
 @api_router.post("/auth/logout")
 async def logout(request: Request, response: Response):
@@ -592,6 +624,356 @@ async def logout(request: Request, response: Response):
     )
     
     return {"message": "Logged out successfully"}
+
+# ============== PASSWORD AUTH ROUTES ==============
+
+class RegisterRequest(BaseModel):
+    email: str
+    password: str
+    name: str
+
+class LoginPasswordRequest(BaseModel):
+    email: str
+    password: str
+
+@api_router.post("/auth/register")
+async def register(data: RegisterRequest, response: Response):
+    """Register a new user with email and password"""
+    if not data.email or "@" not in data.email:
+        raise HTTPException(status_code=400, detail="Invalid email address")
+
+    if len(data.password) < 8:
+        raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
+
+    if not data.name.strip():
+        raise HTTPException(status_code=400, detail="Name is required")
+
+    existing_user = await db.users.find_one({"email": data.email.lower().strip()})
+    if existing_user:
+        raise HTTPException(status_code=409, detail="An account with this email already exists")
+
+    password_hash = pwd_context.hash(data.password)
+
+    stripe_customer_id = None
+    if STRIPE_AVAILABLE and STRIPE_SECRET_KEY:
+        try:
+            customer = stripe.Customer.create(
+                email=data.email.lower().strip(),
+                name=data.name.strip(),
+                metadata={"source": "sonzo_signup"}
+            )
+            stripe_customer_id = customer.id
+        except Exception as e:
+            logger.warning(f"Failed to create Stripe customer: {e}")
+
+    user_id = f"user_{uuid.uuid4().hex[:12]}"
+    new_user = {
+        "user_id": user_id,
+        "email": data.email.lower().strip(),
+        "name": data.name.strip(),
+        "picture": None,
+        "password_hash": password_hash,
+        "stripe_customer_id": stripe_customer_id,
+        "subscription_plan": "free",
+        "subscription_status": "active",
+        "subscription_id": None,
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    await db.users.insert_one(new_user)
+
+    session_token = f"sess_{uuid.uuid4().hex}"
+    expires_at = datetime.now(timezone.utc) + timedelta(days=7)
+
+    session_doc = {
+        "user_id": user_id,
+        "session_token": session_token,
+        "expires_at": expires_at.isoformat(),
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    await db.user_sessions.insert_one(session_doc)
+
+    response.set_cookie(
+        key="session_token",
+        value=session_token,
+        httponly=True,
+        secure=True,
+        samesite="none",
+        path="/",
+        max_age=7 * 24 * 60 * 60
+    )
+
+    user_doc = await db.users.find_one({"user_id": user_id}, {"_id": 0, "password_hash": 0})
+
+    return {
+        "user": user_doc,
+        "session_token": session_token
+    }
+
+@api_router.post("/auth/login-password")
+async def login_password(data: LoginPasswordRequest, response: Response):
+    """Login with email and password"""
+    if not data.email or not data.password:
+        raise HTTPException(status_code=400, detail="Email and password are required")
+
+    user_doc = await db.users.find_one({"email": data.email.lower().strip()})
+
+    if not user_doc:
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+
+    if not user_doc.get("password_hash"):
+        raise HTTPException(status_code=401, detail="This account uses a different login method")
+
+    if not pwd_context.verify(data.password, user_doc["password_hash"]):
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+
+    user_id = user_doc["user_id"]
+
+    session_token = f"sess_{uuid.uuid4().hex}"
+    expires_at = datetime.now(timezone.utc) + timedelta(days=7)
+
+    session_doc = {
+        "user_id": user_id,
+        "session_token": session_token,
+        "expires_at": expires_at.isoformat(),
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+
+    await db.user_sessions.delete_many({"user_id": user_id})
+    await db.user_sessions.insert_one(session_doc)
+
+    response.set_cookie(
+        key="session_token",
+        value=session_token,
+        httponly=True,
+        secure=True,
+        samesite="none",
+        path="/",
+        max_age=7 * 24 * 60 * 60
+    )
+
+    safe_user = {k: v for k, v in user_doc.items() if k not in ("_id", "password_hash")}
+
+    return {
+        "user": safe_user,
+        "session_token": session_token
+    }
+
+# ============== STRIPE ROUTES ==============
+
+class CheckoutSessionRequest(BaseModel):
+    plan_id: str  # "pro" or "enterprise"
+    annual: bool = False
+
+@api_router.post("/stripe/create-checkout-session")
+async def create_checkout_session(
+    data: CheckoutSessionRequest,
+    user: User = Depends(get_current_user)
+):
+    """Create a Stripe Checkout session for subscription"""
+    if not STRIPE_AVAILABLE or not STRIPE_SECRET_KEY:
+        raise HTTPException(status_code=503, detail="Payment processing is not configured")
+
+    price_map = {
+        ("pro", False): STRIPE_PRO_PRICE_ID,
+        ("pro", True): STRIPE_PRO_ANNUAL_PRICE_ID,
+        ("enterprise", False): STRIPE_ENTERPRISE_PRICE_ID,
+        ("enterprise", True): STRIPE_ENTERPRISE_ANNUAL_PRICE_ID,
+    }
+
+    price_id = price_map.get((data.plan_id, data.annual))
+    if not price_id:
+        raise HTTPException(status_code=400, detail="Invalid plan selected")
+
+    user_doc = await db.users.find_one({"user_id": user.user_id})
+    stripe_customer_id = user_doc.get("stripe_customer_id")
+
+    if not stripe_customer_id:
+        try:
+            customer = stripe.Customer.create(
+                email=user.email,
+                name=user.name,
+                metadata={"user_id": user.user_id}
+            )
+            stripe_customer_id = customer.id
+            await db.users.update_one(
+                {"user_id": user.user_id},
+                {"$set": {"stripe_customer_id": stripe_customer_id}}
+            )
+        except Exception as e:
+            logger.error(f"Failed to create Stripe customer: {e}")
+            raise HTTPException(status_code=500, detail="Failed to initialize payment")
+
+    try:
+        checkout_session = stripe.checkout.Session.create(
+            customer=stripe_customer_id,
+            payment_method_types=["card"],
+            line_items=[{
+                "price": price_id,
+                "quantity": 1,
+            }],
+            mode="subscription",
+            success_url=f"{FRONTEND_URL}/?session_id={{CHECKOUT_SESSION_ID}}&status=success",
+            cancel_url=f"{FRONTEND_URL}/pricing?status=canceled",
+            metadata={
+                "user_id": user.user_id,
+                "plan_id": data.plan_id,
+            },
+            subscription_data={
+                "metadata": {
+                    "user_id": user.user_id,
+                    "plan_id": data.plan_id,
+                }
+            }
+        )
+
+        return {"checkout_url": checkout_session.url, "session_id": checkout_session.id}
+    except Exception as e:
+        logger.error(f"Failed to create checkout session: {e}")
+        raise HTTPException(status_code=500, detail="Failed to create checkout session")
+
+@api_router.post("/stripe/webhook")
+async def stripe_webhook(request: Request):
+    """Handle Stripe webhook events"""
+    if not STRIPE_AVAILABLE or not STRIPE_SECRET_KEY:
+        raise HTTPException(status_code=503, detail="Stripe not configured")
+
+    payload = await request.body()
+    sig_header = request.headers.get("stripe-signature")
+
+    try:
+        if STRIPE_WEBHOOK_SECRET:
+            event = stripe.Webhook.construct_event(
+                payload, sig_header, STRIPE_WEBHOOK_SECRET
+            )
+        else:
+            event = json.loads(payload)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid payload")
+    except stripe.error.SignatureVerificationError:
+        raise HTTPException(status_code=400, detail="Invalid signature")
+
+    event_type = event.get("type", "")
+    data_object = event.get("data", {}).get("object", {})
+
+    logger.info(f"Stripe webhook received: {event_type}")
+
+    if event_type == "checkout.session.completed":
+        user_id = data_object.get("metadata", {}).get("user_id")
+        subscription_id = data_object.get("subscription")
+        plan_id = data_object.get("metadata", {}).get("plan_id", "pro")
+
+        if user_id:
+            await db.users.update_one(
+                {"user_id": user_id},
+                {"$set": {
+                    "subscription_plan": plan_id,
+                    "subscription_status": "active",
+                    "subscription_id": subscription_id,
+                }}
+            )
+            logger.info(f"User {user_id} subscribed to {plan_id}")
+
+    elif event_type == "customer.subscription.updated":
+        subscription_id = data_object.get("id")
+        status = data_object.get("status")
+        user_id = data_object.get("metadata", {}).get("user_id")
+        plan_id = data_object.get("metadata", {}).get("plan_id")
+
+        if user_id:
+            update_fields = {"subscription_status": status}
+            if plan_id:
+                update_fields["subscription_plan"] = plan_id
+
+            await db.users.update_one(
+                {"user_id": user_id},
+                {"$set": update_fields}
+            )
+            logger.info(f"User {user_id} subscription updated: {status}")
+
+    elif event_type == "customer.subscription.deleted":
+        user_id = data_object.get("metadata", {}).get("user_id")
+
+        if user_id:
+            await db.users.update_one(
+                {"user_id": user_id},
+                {"$set": {
+                    "subscription_plan": "free",
+                    "subscription_status": "canceled",
+                    "subscription_id": None,
+                }}
+            )
+            logger.info(f"User {user_id} subscription canceled")
+
+    elif event_type == "invoice.payment_failed":
+        customer_id = data_object.get("customer")
+        if customer_id:
+            user_doc = await db.users.find_one({"stripe_customer_id": customer_id})
+            if user_doc:
+                await db.users.update_one(
+                    {"user_id": user_doc["user_id"]},
+                    {"$set": {"subscription_status": "past_due"}}
+                )
+                logger.info(f"User {user_doc['user_id']} payment failed")
+
+    return {"status": "ok"}
+
+@api_router.post("/stripe/create-portal-session")
+async def create_portal_session(user: User = Depends(get_current_user)):
+    """Create a Stripe Customer Portal session for managing subscription"""
+    if not STRIPE_AVAILABLE or not STRIPE_SECRET_KEY:
+        raise HTTPException(status_code=503, detail="Payment processing is not configured")
+
+    user_doc = await db.users.find_one({"user_id": user.user_id})
+    stripe_customer_id = user_doc.get("stripe_customer_id")
+
+    if not stripe_customer_id:
+        raise HTTPException(status_code=400, detail="No payment account found. Please subscribe first.")
+
+    try:
+        portal_session = stripe.billing_portal.Session.create(
+            customer=stripe_customer_id,
+            return_url=f"{FRONTEND_URL}/pricing",
+        )
+        return {"portal_url": portal_session.url}
+    except Exception as e:
+        logger.error(f"Failed to create portal session: {e}")
+        raise HTTPException(status_code=500, detail="Failed to open billing portal")
+
+@api_router.get("/stripe/subscription")
+async def get_subscription(user: User = Depends(get_current_user)):
+    """Get current user subscription status"""
+    user_doc = await db.users.find_one(
+        {"user_id": user.user_id},
+        {"_id": 0, "password_hash": 0}
+    )
+
+    if not user_doc:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    subscription_info = {
+        "plan": user_doc.get("subscription_plan", "free"),
+        "status": user_doc.get("subscription_status", "active"),
+        "stripe_customer_id": user_doc.get("stripe_customer_id"),
+        "subscription_id": user_doc.get("subscription_id"),
+    }
+
+    if (subscription_info["subscription_id"] and STRIPE_AVAILABLE and STRIPE_SECRET_KEY):
+        try:
+            sub = stripe.Subscription.retrieve(subscription_info["subscription_id"])
+            subscription_info["current_period_end"] = sub.current_period_end
+            subscription_info["cancel_at_period_end"] = sub.cancel_at_period_end
+        except Exception as e:
+            logger.warning(f"Failed to fetch subscription details: {e}")
+
+    return subscription_info
+
+@api_router.get("/stripe/config")
+async def get_stripe_config():
+    """Get Stripe publishable key for frontend"""
+    return {
+        "publishable_key": STRIPE_PUBLISHABLE_KEY,
+        "enabled": bool(STRIPE_AVAILABLE and STRIPE_SECRET_KEY),
+    }
 
 # ============== SIGN DICTIONARY ROUTES ==============
 
