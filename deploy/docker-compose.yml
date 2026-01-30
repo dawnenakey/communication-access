@@ -2,10 +2,27 @@ version: '3.8'
 
 # SonZo AI - Production Deployment
 # =================================
-# Deploy to sonzo.io with SSL/HTTPS
+# Full-stack deployment to EC2 with SSL/HTTPS
+#
+# Services:
+#   - nginx:       Reverse proxy with SSL termination
+#   - frontend:    React/Vite SPA
+#   - backend:     FastAPI main server (auth, billing, signs, GenASL)
+#   - ui:          Legacy UI Backend API
+#   - avatar:      Avatar generation (GPU)
+#   - recognition: Sign language recognition (GPU)
+#   - mongodb:     Database
+#
+# Usage:
+#   docker-compose up -d                    # Start all services
+#   docker-compose up -d --build            # Rebuild and start
+#   docker-compose logs -f backend          # Tail backend logs
+#   docker-compose down                     # Stop all services
 
 services:
+  # ─────────────────────────────────────────────
   # Nginx reverse proxy with SSL
+  # ─────────────────────────────────────────────
   nginx:
     image: nginx:alpine
     container_name: sonzo-nginx
@@ -15,14 +32,53 @@ services:
     volumes:
       - ./nginx.conf:/etc/nginx/nginx.conf:ro
       - ./ssl:/etc/nginx/ssl:ro
-      - ../ui:/var/www/ui:ro
     depends_on:
+      - frontend
+      - backend
       - ui
       - avatar
       - recognition
     restart: unless-stopped
 
-  # UI Backend API
+  # ─────────────────────────────────────────────
+  # Frontend - React/Vite SPA
+  # ─────────────────────────────────────────────
+  frontend:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.frontend
+      args:
+        VITE_API_URL: /api
+    container_name: sonzo-frontend
+    expose:
+      - "3000"
+    restart: unless-stopped
+
+  # ─────────────────────────────────────────────
+  # Backend - Main FastAPI server
+  # ─────────────────────────────────────────────
+  backend:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.backend
+    container_name: sonzo-backend
+    env_file:
+      - .env
+    environment:
+      - MONGO_URL=mongodb://mongodb:27017
+      - DB_NAME=signsync
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - sonzo-data:/data
+    expose:
+      - "8000"
+    depends_on:
+      - mongodb
+    restart: unless-stopped
+
+  # ─────────────────────────────────────────────
+  # Legacy UI Backend API
+  # ─────────────────────────────────────────────
   ui:
     build:
       context: ..
@@ -37,7 +93,9 @@ services:
       - "8081"
     restart: unless-stopped
 
-  # Avatar API
+  # ─────────────────────────────────────────────
+  # Avatar API (requires GPU)
+  # ─────────────────────────────────────────────
   avatar:
     build:
       context: ..
@@ -60,7 +118,9 @@ services:
               count: 1
               capabilities: [gpu]
 
-  # Recognition API
+  # ─────────────────────────────────────────────
+  # Recognition API (requires GPU)
+  # ─────────────────────────────────────────────
   recognition:
     build:
       context: ..
@@ -82,10 +142,24 @@ services:
               count: 1
               capabilities: [gpu]
 
+  # ─────────────────────────────────────────────
+  # MongoDB Database
+  # ─────────────────────────────────────────────
+  mongodb:
+    image: mongo:7
+    container_name: sonzo-mongodb
+    volumes:
+      - mongo-data:/data/db
+    expose:
+      - "27017"
+    restart: unless-stopped
+    command: ["mongod", "--bind_ip_all"]
+
 volumes:
   sonzo-data:
   avatar-models:
   recognition-models:
+  mongo-data:
 
 networks:
   default:
