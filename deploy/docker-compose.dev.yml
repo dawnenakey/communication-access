@@ -1,0 +1,57 @@
+version: '3.8'
+
+# SonZo AI - Local Development Stack
+# ====================================
+# Runs MongoDB + Backend in Docker, frontend via Vite dev server locally.
+# No SSL, no nginx, no GPU services.
+#
+# Usage:
+#   docker compose -f deploy/docker-compose.dev.yml up -d     # Start
+#   docker compose -f deploy/docker-compose.dev.yml down       # Stop
+#   docker compose -f deploy/docker-compose.dev.yml logs -f    # Logs
+#
+# Then run frontend locally:
+#   cd frontend && npm run dev
+#
+# Access:
+#   Frontend:  http://localhost:8080  (Vite dev server with HMR)
+#   Backend:   http://localhost:8000  (FastAPI with auto-docs at /docs)
+#   MongoDB:   localhost:27017
+
+services:
+  # ── Backend API ───────────────────────────────
+  backend:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.backend
+    container_name: sonzo-backend-dev
+    env_file:
+      - ../.env
+    environment:
+      - MONGO_URL=mongodb://mongodb:27017
+      - DB_NAME=signsync_dev
+      - FRONTEND_URL=http://localhost:8080
+      - CORS_ORIGINS=http://localhost:8080,http://localhost:3000
+      - PYTHONUNBUFFERED=1
+    ports:
+      - "8000:8000"
+    depends_on:
+      - mongodb
+    restart: unless-stopped
+
+  # ── MongoDB ───────────────────────────────────
+  mongodb:
+    image: mongo:7
+    container_name: sonzo-mongodb-dev
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-dev-data:/data/db
+    restart: unless-stopped
+
+volumes:
+  mongo-dev-data:
+
+networks:
+  default:
+    name: sonzo-dev-network
