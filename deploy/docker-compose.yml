@@ -11,6 +11,7 @@ version: '3.8'
 #   - ui:          Legacy UI Backend API
 #   - avatar:      Avatar generation (GPU)
 #   - recognition: Sign language recognition (GPU)
+#   - broadcast:   Real-time broadcast with WebSocket/SSE
 #   - mongodb:     Database
 #
 # Usage:
@@ -38,6 +39,7 @@ services:
       - ui
       - avatar
       - recognition
+      - broadcast
     restart: unless-stopped
 
   # ─────────────────────────────────────────────
@@ -141,6 +143,25 @@ services:
             - driver: nvidia
               count: 1
               capabilities: [gpu]
+
+  # ─────────────────────────────────────────────
+  # Broadcast Service (WebSocket/SSE)
+  # ─────────────────────────────────────────────
+  broadcast:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.broadcast
+    container_name: sonzo-broadcast
+    environment:
+      - BACKEND_URL=http://backend:8000
+      - SLR_API_URL=http://backend:8000/api/slr
+      - CORS_ORIGINS=https://demo.sonzo.io,https://sonzo.io,http://localhost:3000
+      - PYTHONUNBUFFERED=1
+    expose:
+      - "8083"
+    depends_on:
+      - backend
+    restart: unless-stopped
 
   # ─────────────────────────────────────────────
   # MongoDB Database
