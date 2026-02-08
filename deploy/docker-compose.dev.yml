@@ -2,7 +2,7 @@ version: '3.8'
 
 # SonZo AI - Local Development Stack
 # ====================================
-# Runs MongoDB + Backend in Docker, frontend via Vite dev server locally.
+# Runs MongoDB + Backend + Broadcast in Docker, frontend via Vite dev server locally.
 # No SSL, no nginx, no GPU services.
 #
 # Usage:
@@ -16,6 +16,7 @@ version: '3.8'
 # Access:
 #   Frontend:  http://localhost:8080  (Vite dev server with HMR)
 #   Backend:   http://localhost:8000  (FastAPI with auto-docs at /docs)
+#   Broadcast: http://localhost:8083  (WebSocket/SSE broadcast service)
 #   MongoDB:   localhost:27017
 
 services:
@@ -37,6 +38,23 @@ services:
       - "8000:8000"
     depends_on:
       - mongodb
+    restart: unless-stopped
+
+  # ── Broadcast Service ────────────────────────
+  broadcast:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.broadcast
+    container_name: sonzo-broadcast-dev
+    environment:
+      - BACKEND_URL=http://backend:8000
+      - SLR_API_URL=http://backend:8000/api/slr
+      - CORS_ORIGINS=http://localhost:8080,http://localhost:3000
+      - PYTHONUNBUFFERED=1
+    ports:
+      - "8083:8083"
+    depends_on:
+      - backend
     restart: unless-stopped
 
   # ── MongoDB ───────────────────────────────────
