@@ -12,6 +12,7 @@ import SharedConversation from "./pages/SharedConversation";
 import ConversationalDemo from "./pages/ConversationalDemo";
 import SignIn from "./pages/SignIn";
 import Pricing from "./pages/Pricing";
+import Intake from "./pages/Intake";
 
 const queryClient = new QueryClient();
 
@@ -27,6 +28,7 @@ const App = () => (
               <Route path="/" element={<Index />} />
               <Route path="/signin" element={<SignIn />} />
               <Route path="/pricing" element={<Pricing />} />
+              <Route path="/intake" element={<Intake />} />
               <Route path="/conversationaldemo" element={<ConversationalDemo />} />
               <Route path="/shared/:shareToken" element={<SharedConversation />} />
               <Route path="*" element={<NotFound />} />
