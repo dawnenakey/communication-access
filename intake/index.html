@@ -1,0 +1,536 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SonZo AI - Service Inquiry</title>
+    <meta
+      name="description"
+      content="Tell us about your needs and we'll help you find the perfect solution for accessible communication."
+    />
+    <link rel="icon" href="/favicon.ico" />
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #0b0b12;
+        --surface: rgba(255, 255, 255, 0.06);
+        --border: rgba(148, 163, 184, 0.2);
+        --text: #f8fafc;
+        --muted: #cbd5f5;
+        --violet: #8b5cf6;
+        --violet-dark: #7c3aed;
+        --purple: #9333ea;
+        --error: #ef4444;
+        --success: #22c55e;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        font-family: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
+        background: #0b0b12;
+        color: var(--text);
+        min-height: 100vh;
+      }
+
+      .page {
+        position: relative;
+        min-height: 100vh;
+        overflow: hidden;
+      }
+
+      .bg-blur {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+      }
+
+      .blob {
+        position: absolute;
+        border-radius: 999px;
+        filter: blur(120px);
+        opacity: 0.4;
+      }
+
+      .blob.violet {
+        width: 320px;
+        height: 320px;
+        background: rgba(139, 92, 246, 0.4);
+        top: 80px;
+        left: 80px;
+      }
+
+      .blob.purple {
+        width: 420px;
+        height: 420px;
+        background: rgba(147, 51, 234, 0.4);
+        top: 120px;
+        right: 80px;
+      }
+
+      .blob.cyan {
+        width: 360px;
+        height: 360px;
+        background: rgba(34, 211, 238, 0.3);
+        bottom: 80px;
+        left: 30%;
+      }
+
+      .container {
+        position: relative;
+        z-index: 1;
+        max-width: 1040px;
+        margin: 0 auto;
+        padding: 0 24px 80px;
+      }
+
+      .nav {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 24px 0;
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        color: inherit;
+        text-decoration: none;
+      }
+
+      .brand-logo {
+        width: 48px;
+        height: 48px;
+        border-radius: 16px;
+        background: linear-gradient(135deg, var(--violet), var(--purple));
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 700;
+      }
+
+      .brand-name {
+        font-weight: 700;
+        font-size: 20px;
+      }
+
+      .brand-name span {
+        color: var(--violet);
+      }
+
+      .nav-actions {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+      }
+
+      .nav-link {
+        color: var(--muted);
+        text-decoration: none;
+        font-size: 14px;
+      }
+
+      .nav-button {
+        padding: 8px 18px;
+        border-radius: 10px;
+        background: rgba(148, 163, 184, 0.12);
+        color: var(--text);
+        text-decoration: none;
+        font-weight: 600;
+        font-size: 14px;
+      }
+
+      .hero {
+        text-align: center;
+        padding: 24px 0 40px;
+      }
+
+      .badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 16px;
+        border-radius: 999px;
+        background: rgba(139, 92, 246, 0.12);
+        border: 1px solid rgba(139, 92, 246, 0.3);
+        color: var(--violet);
+        font-weight: 600;
+        font-size: 13px;
+      }
+
+      h1 {
+        margin: 16px 0 12px;
+        font-size: 40px;
+        font-weight: 800;
+      }
+
+      .gradient-text {
+        display: block;
+        background: linear-gradient(135deg, #a78bfa, #f0abfc);
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+      }
+
+      .subtitle {
+        color: var(--muted);
+        font-size: 18px;
+        max-width: 520px;
+        margin: 0 auto;
+      }
+
+      .form-card {
+        background: rgba(15, 23, 42, 0.6);
+        border: 1px solid var(--border);
+        border-radius: 24px;
+        padding: 32px;
+        box-shadow: 0 20px 60px rgba(15, 23, 42, 0.4);
+      }
+
+      .section-title {
+        font-size: 18px;
+        font-weight: 600;
+        margin: 0 0 16px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .grid-2 {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 16px;
+      }
+
+      label {
+        display: block;
+        font-size: 13px;
+        font-weight: 600;
+        margin-bottom: 8px;
+      }
+
+      input,
+      select,
+      textarea {
+        width: 100%;
+        border-radius: 14px;
+        border: 1px solid rgba(148, 163, 184, 0.3);
+        background: rgba(15, 23, 42, 0.7);
+        color: var(--text);
+        padding: 12px 14px;
+        font-size: 14px;
+        outline: none;
+      }
+
+      input:focus,
+      select:focus,
+      textarea:focus {
+        border-color: rgba(139, 92, 246, 0.8);
+        box-shadow: 0 0 0 4px rgba(139, 92, 246, 0.2);
+      }
+
+      textarea {
+        resize: vertical;
+      }
+
+      .error {
+        margin-bottom: 16px;
+        padding: 12px 14px;
+        border-radius: 12px;
+        background: rgba(239, 68, 68, 0.12);
+        border: 1px solid rgba(239, 68, 68, 0.3);
+        color: var(--error);
+        font-size: 13px;
+      }
+
+      .submit-button {
+        width: 100%;
+        border: none;
+        border-radius: 14px;
+        padding: 14px 18px;
+        background: linear-gradient(135deg, var(--violet), var(--purple));
+        color: white;
+        font-weight: 600;
+        font-size: 15px;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
+      }
+
+      .submit-button[disabled] {
+        opacity: 0.6;
+        cursor: not-allowed;
+      }
+
+      .privacy {
+        margin-top: 12px;
+        text-align: center;
+        font-size: 12px;
+        color: var(--muted);
+      }
+
+      .success {
+        text-align: center;
+        padding: 32px 0;
+      }
+
+      .success-icon {
+        width: 72px;
+        height: 72px;
+        border-radius: 50%;
+        background: rgba(34, 197, 94, 0.2);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        color: var(--success);
+        font-size: 28px;
+        margin-bottom: 16px;
+      }
+
+      .footer {
+        margin-top: 64px;
+        padding-top: 24px;
+        border-top: 1px solid var(--border);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 16px;
+      }
+
+      .footer-brand {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .footer-note {
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      @media (max-width: 768px) {
+        .grid-2 {
+          grid-template-columns: 1fr;
+        }
+
+        .nav-actions {
+          flex-direction: column;
+          align-items: flex-end;
+          gap: 8px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <div class="bg-blur">
+        <div class="blob violet"></div>
+        <div class="blob purple"></div>
+        <div class="blob cyan"></div>
+      </div>
+
+      <div class="container">
+        <nav class="nav">
+          <a href="/" class="brand">
+            <div class="brand-logo">SZ</div>
+            <div>
+              <div class="brand-name">Son<span>Zo</span></div>
+              <div class="footer-note">AI Communication</div>
+            </div>
+          </a>
+          <div class="nav-actions">
+            <a class="nav-link" href="/">Back</a>
+            <a class="nav-button" href="/pricing">View Pricing</a>
+          </div>
+        </nav>
+
+        <section class="hero">
+          <div class="badge">Let's connect</div>
+          <h1>
+            Get Started with
+            <span class="gradient-text">SonZo AI</span>
+          </h1>
+          <p class="subtitle">
+            Tell us about your needs and we'll help you find the perfect solution
+            for accessible communication.
+          </p>
+        </section>
+
+        <section class="form-card" id="form-card">
+          <div id="error" class="error" style="display: none;"></div>
+          <form id="intake-form">
+            <div class="section-title">Contact Information</div>
+            <div class="grid-2">
+              <div>
+                <label for="firstName">First Name <span style="color: var(--error)">*</span></label>
+                <input id="firstName" name="firstName" type="text" placeholder="John" required />
+              </div>
+              <div>
+                <label for="lastName">Last Name <span style="color: var(--error)">*</span></label>
+                <input id="lastName" name="lastName" type="text" placeholder="Doe" required />
+              </div>
+            </div>
+
+            <div class="grid-2" style="margin-top: 16px;">
+              <div>
+                <label for="email">Email Address <span style="color: var(--error)">*</span></label>
+                <input id="email" name="email" type="email" placeholder="john@company.com" required />
+              </div>
+              <div>
+                <label for="phone">Phone Number</label>
+                <input id="phone" name="phone" type="tel" placeholder="+1 (555) 123-4567" />
+              </div>
+            </div>
+
+            <div style="margin-top: 24px;" class="section-title">Organization</div>
+            <div class="grid-2">
+              <div>
+                <label for="organization">Organization Name</label>
+                <input id="organization" name="organization" type="text" placeholder="Acme Corporation" />
+              </div>
+              <div>
+                <label for="role">Your Role</label>
+                <input id="role" name="role" type="text" placeholder="Accessibility Coordinator" />
+              </div>
+            </div>
+
+            <div style="margin-top: 24px;" class="section-title">Service Details</div>
+            <div class="grid-2">
+              <div>
+                <label for="serviceType">Service Type</label>
+                <select id="serviceType" name="serviceType">
+                  <option value="">Select a service...</option>
+                  <option value="enterprise">Enterprise Solution</option>
+                  <option value="education">Education & Training</option>
+                  <option value="healthcare">Healthcare</option>
+                  <option value="government">Government & Public Sector</option>
+                  <option value="events">Events & Conferences</option>
+                  <option value="broadcasting">Broadcasting & Media</option>
+                  <option value="custom">Custom Integration</option>
+                  <option value="other">Other</option>
+                </select>
+              </div>
+              <div>
+                <label for="timeline">Expected Timeline</label>
+                <select id="timeline" name="timeline">
+                  <option value="">Select timeline...</option>
+                  <option value="immediate">Immediate (within 2 weeks)</option>
+                  <option value="1-3months">1-3 months</option>
+                  <option value="3-6months">3-6 months</option>
+                  <option value="6months+">6+ months</option>
+                  <option value="exploring">Just exploring options</option>
+                </select>
+              </div>
+            </div>
+
+            <div style="margin-top: 16px;">
+              <label for="useCase">Describe Your Use Case</label>
+              <textarea
+                id="useCase"
+                name="useCase"
+                rows="4"
+                placeholder="Tell us about your organization's communication needs and how you envision using SonZo AI..."
+              ></textarea>
+            </div>
+
+            <div style="margin-top: 16px;">
+              <label for="additionalNotes">Additional Notes</label>
+              <textarea
+                id="additionalNotes"
+                name="additionalNotes"
+                rows="3"
+                placeholder="Any other information you'd like to share..."
+              ></textarea>
+            </div>
+
+            <button class="submit-button" type="submit" id="submit-btn">
+              Submit Inquiry
+            </button>
+            <p class="privacy">
+              We respect your privacy. Your information will only be used to respond to your inquiry.
+            </p>
+          </form>
+        </section>
+
+        <section class="form-card success" id="success-card" style="display: none;">
+          <div class="success-icon">✓</div>
+          <h2>Thank You!</h2>
+          <p class="subtitle">
+            We've received your inquiry and will get back to you within 1-2 business days.
+          </p>
+          <a class="nav-button" href="/" style="margin-top: 16px; display: inline-block;">
+            Back to Home
+          </a>
+        </section>
+
+        <footer class="footer">
+          <div class="footer-brand">
+            <div class="brand-logo" style="width: 40px; height: 40px;">SZ</div>
+            <div>
+              <div class="brand-name">Son<span>Zo</span></div>
+              <div class="footer-note">AI Communication</div>
+            </div>
+          </div>
+          <div class="footer-note">© 2025 SonZo AI. Patent Pending. All rights reserved.</div>
+        </footer>
+      </div>
+    </div>
+
+    <script>
+      const form = document.getElementById("intake-form");
+      const submitBtn = document.getElementById("submit-btn");
+      const errorBox = document.getElementById("error");
+      const formCard = document.getElementById("form-card");
+      const successCard = document.getElementById("success-card");
+
+      const showError = (message) => {
+        errorBox.textContent = message;
+        errorBox.style.display = "block";
+      };
+
+      const clearError = () => {
+        errorBox.textContent = "";
+        errorBox.style.display = "none";
+      };
+
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        clearError();
+
+        const data = Object.fromEntries(new FormData(form));
+        if (!data.firstName || !data.lastName || !data.email) {
+          showError("Please fill in all required fields.");
+          return;
+        }
+
+        if (!data.email.includes("@")) {
+          showError("Please enter a valid email address.");
+          return;
+        }
+
+        submitBtn.disabled = true;
+        submitBtn.textContent = "Submitting...";
+
+        try {
+          // TODO: Replace with actual API call to submit intake form
+          await new Promise((resolve) => setTimeout(resolve, 1500));
+          console.log("Intake form submitted:", data);
+          formCard.style.display = "none";
+          successCard.style.display = "block";
+        } catch (err) {
+          showError("Failed to submit form. Please try again or contact us directly.");
+        } finally {
+          submitBtn.disabled = false;
+          submitBtn.textContent = "Submit Inquiry";
+        }
+      });
+    </script>
+  </body>
+</html>
