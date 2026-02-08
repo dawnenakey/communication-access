@@ -166,12 +166,12 @@ class MediaPipeHandsDetector {
         }
         
         this.hands.send({ image: canvas }).catch(reject);
-        
-        // Timeout fallback
+
+        // Timeout fallback - increased to 10 seconds for slower networks
         setTimeout(() => {
           this.isInitialized = true;
           resolve();
-        }, 3000);
+        }, 10000);
       });
 
       console.log('MediaPipe Hands initialized successfully');

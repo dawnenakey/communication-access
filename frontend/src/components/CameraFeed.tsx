@@ -133,6 +133,12 @@ const CameraFeed: React.FC<CameraFeedProps> = ({
   const startWebcam = useCallback(async () => {
     try {
       setWebcamError(null);
+
+      // Check if getUserMedia is supported
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        throw new Error('Camera access is not supported in this browser');
+      }
+
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' }
       });
@@ -143,7 +149,39 @@ const CameraFeed: React.FC<CameraFeedProps> = ({
       }
     } catch (err: any) {
       console.error('Webcam error:', err);
-      setWebcamError(err.message || 'Failed to access camera');
+
+      // Provide specific error messages based on error type
+      let errorMessage = 'Failed to access camera';
+      if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+        errorMessage = 'Camera permission denied. Please allow camera access in your browser settings.';
+      } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
+        errorMessage = 'No camera found. Please connect a camera and try again.';
+      } else if (err.name === 'NotReadableError' || err.name === 'TrackStartError') {
+        errorMessage = 'Camera is in use by another application. Please close other apps using the camera.';
+      } else if (err.name === 'OverconstrainedError') {
+        errorMessage = 'Camera does not support the requested resolution. Trying default settings...';
+        // Try with lower resolution
+        try {
+          const fallbackStream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: 'user' }
+          });
+          setWebcamStream(fallbackStream);
+          if (videoRef.current) {
+            videoRef.current.srcObject = fallbackStream;
+            videoRef.current.play();
+          }
+          setWebcamError(null);
+          return;
+        } catch {
+          errorMessage = 'Camera initialization failed. Please check camera permissions.';
+        }
+      } else if (err.name === 'SecurityError') {
+        errorMessage = 'Camera access blocked. Please use HTTPS or enable camera permissions.';
+      } else if (err.message) {
+        errorMessage = err.message;
+      }
+
+      setWebcamError(errorMessage);
     }
   }, []);
 

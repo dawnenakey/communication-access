@@ -450,9 +450,21 @@ const VideoAvatar: React.FC<VideoAvatarProps> = ({
             className="w-full h-full object-cover"
             muted={isMuted}
             playsInline
+            crossOrigin="anonymous"
             onEnded={handleVideoEnded}
             onTimeUpdate={handleTimeUpdate}
-            onError={() => {
+            onError={(e) => {
+              const videoEl = e.currentTarget;
+              const errorCode = videoEl.error?.code;
+              const errorMessage = videoEl.error?.message || 'Unknown video error';
+              console.error('Video playback error:', {
+                code: errorCode,
+                message: errorMessage,
+                src: currentVideoUrl,
+                networkState: videoEl.networkState,
+                readyState: videoEl.readyState
+              });
+              setError(`Video failed to load: ${errorMessage}`);
               setCurrentVideoUrl(null);
               if (currentSentence) simulateSigning(currentSentence);
             }}
