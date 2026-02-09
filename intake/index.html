@@ -519,13 +519,24 @@
         submitBtn.textContent = "Submitting...";
 
         try {
-          // TODO: Replace with actual API call to submit intake form
-          await new Promise((resolve) => setTimeout(resolve, 1500));
-          console.log("Intake form submitted:", data);
+          const response = await fetch("/api/intake", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify(data),
+          });
+
+          if (!response.ok) {
+            const errorPayload = await response.json().catch(() => ({}));
+            const message = errorPayload.detail || "Failed to submit form.";
+            throw new Error(message);
+          }
+
           formCard.style.display = "none";
           successCard.style.display = "block";
         } catch (err) {
-          showError("Failed to submit form. Please try again or contact us directly.");
+          showError(err.message || "Failed to submit form. Please try again or contact us directly.");
         } finally {
           submitBtn.disabled = false;
           submitBtn.textContent = "Submit Inquiry";

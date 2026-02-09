@@ -1,4 +1,5 @@
 from fastapi import FastAPI, APIRouter, HTTPException, Request, Response, UploadFile, File, Form, Depends
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse, FileResponse
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
@@ -13,6 +14,9 @@ from datetime import datetime, timezone, timedelta
 import base64
 import httpx
 import json
+import sqlite3
+import smtplib
+from email.message import EmailMessage
 
 # Password hashing
 from passlib.context import CryptContext
@@ -59,6 +63,15 @@ STRIPE_PRO_ANNUAL_PRICE_ID = os.environ.get('STRIPE_PRO_ANNUAL_PRICE_ID', '')
 STRIPE_ENTERPRISE_PRICE_ID = os.environ.get('STRIPE_ENTERPRISE_PRICE_ID', '')
 STRIPE_ENTERPRISE_ANNUAL_PRICE_ID = os.environ.get('STRIPE_ENTERPRISE_ANNUAL_PRICE_ID', '')
 FRONTEND_URL = os.environ.get('FRONTEND_URL', 'http://localhost:3000')
+
+# Intake form configuration
+INTAKE_DB_PATH = os.environ.get('INTAKE_DB_PATH', '/var/www/sonzo/data/intake.db')
+INTAKE_EMAIL_TO = os.environ.get('INTAKE_EMAIL_TO', '')
+SMTP_HOST = os.environ.get('SMTP_HOST', '')
+SMTP_PORT = int(os.environ.get('SMTP_PORT', '587'))
+SMTP_USERNAME = os.environ.get('SMTP_USERNAME', '')
+SMTP_PASSWORD = os.environ.get('SMTP_PASSWORD', '')
+SMTP_FROM = os.environ.get('SMTP_FROM', '')
 
 if STRIPE_AVAILABLE and STRIPE_SECRET_KEY:
     stripe.api_key = STRIPE_SECRET_KEY
@@ -133,6 +146,18 @@ class TranslationHistoryCreate(BaseModel):
     input_content: str
     output_content: str
     confidence: Optional[float] = None
+
+class IntakeSubmission(BaseModel):
+    firstName: str
+    lastName: str
+    email: str
+    phone: Optional[str] = None
+    organization: Optional[str] = None
+    role: Optional[str] = None
+    serviceType: Optional[str] = None
+    useCase: Optional[str] = None
+    timeline: Optional[str] = None
+    additionalNotes: Optional[str] = None
 
 # ============== SLR MODELS ==============
 
@@ -416,6 +441,98 @@ AVAILABLE_SIGNS = [
 
 # ============== AUTH HELPERS ==============
 
+def init_intake_db() -> None:
+    db_dir = os.path.dirname(INTAKE_DB_PATH)
+    if db_dir:
+        os.makedirs(db_dir, exist_ok=True)
+    with sqlite3.connect(INTAKE_DB_PATH) as conn:
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS intake_submissions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                created_at TEXT NOT NULL,
+                first_name TEXT NOT NULL,
+                last_name TEXT NOT NULL,
+                email TEXT NOT NULL,
+                phone TEXT,
+                organization TEXT,
+                role TEXT,
+                service_type TEXT,
+                use_case TEXT,
+                timeline TEXT,
+                additional_notes TEXT,
+                ip_address TEXT,
+                user_agent TEXT
+            )
+            """
+        )
+
+def save_intake_submission(payload: IntakeSubmission, metadata: Dict[str, str]) -> int:
+    created_at = datetime.now(timezone.utc).isoformat()
+    with sqlite3.connect(INTAKE_DB_PATH) as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            INSERT INTO intake_submissions (
+                created_at, first_name, last_name, email, phone,
+                organization, role, service_type, use_case, timeline,
+                additional_notes, ip_address, user_agent
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                created_at,
+                payload.firstName,
+                payload.lastName,
+                payload.email,
+                payload.phone,
+                payload.organization,
+                payload.role,
+                payload.serviceType,
+                payload.useCase,
+                payload.timeline,
+                payload.additionalNotes,
+                metadata.get("ip_address"),
+                metadata.get("user_agent"),
+            ),
+        )
+        return cursor.lastrowid
+
+def send_intake_email(payload: IntakeSubmission, metadata: Dict[str, str]) -> None:
+    if not (SMTP_HOST and SMTP_USERNAME and SMTP_PASSWORD and SMTP_FROM and INTAKE_EMAIL_TO):
+        raise RuntimeError("SMTP settings are not fully configured")
+
+    subject = f"New SonZo intake: {payload.firstName} {payload.lastName}"
+    if payload.serviceType:
+        subject += f" ({payload.serviceType})"
+
+    lines = [
+        "New intake submission received:",
+        "",
+        f"Name: {payload.firstName} {payload.lastName}",
+        f"Email: {payload.email}",
+        f"Phone: {payload.phone or '-'}",
+        f"Organization: {payload.organization or '-'}",
+        f"Role: {payload.role or '-'}",
+        f"Service Type: {payload.serviceType or '-'}",
+        f"Timeline: {payload.timeline or '-'}",
+        f"Use Case: {payload.useCase or '-'}",
+        f"Additional Notes: {payload.additionalNotes or '-'}",
+        "",
+        f"IP Address: {metadata.get('ip_address', '-')}",
+        f"User Agent: {metadata.get('user_agent', '-')}",
+    ]
+
+    message = EmailMessage()
+    message["Subject"] = subject
+    message["From"] = SMTP_FROM
+    message["To"] = INTAKE_EMAIL_TO
+    message.set_content("\n".join(lines))
+
+    with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=15) as smtp:
+        smtp.starttls()
+        smtp.login(SMTP_USERNAME, SMTP_PASSWORD)
+        smtp.send_message(message)
+
 async def get_current_user(request: Request) -> User:
     """Get current user from session token in cookie or Authorization header"""
     session_token = request.cookies.get("session_token")
@@ -534,6 +651,36 @@ async def login(login_data: LoginRequest, response: Response):
     return {
         "user": user_doc,
         "session_token": session_token
+    }
+
+# ============== INTAKE ROUTES ==============
+
+@api_router.post("/intake")
+async def submit_intake(request: Request, payload: IntakeSubmission):
+    if not payload.firstName or not payload.lastName or not payload.email:
+        raise HTTPException(status_code=400, detail="Missing required fields")
+    if "@" not in payload.email:
+        raise HTTPException(status_code=400, detail="Invalid email address")
+
+    metadata = {
+        "ip_address": request.client.host if request.client else "",
+        "user_agent": request.headers.get("user-agent", ""),
+    }
+
+    await run_in_threadpool(init_intake_db)
+    submission_id = await run_in_threadpool(save_intake_submission, payload, metadata)
+
+    email_sent = False
+    try:
+        await run_in_threadpool(send_intake_email, payload, metadata)
+        email_sent = True
+    except Exception as exc:
+        logger.warning(f"Failed to send intake email: {exc}")
+
+    return {
+        "status": "ok",
+        "submission_id": submission_id,
+        "email_sent": email_sent,
     }
 
 @api_router.post("/auth/session")
