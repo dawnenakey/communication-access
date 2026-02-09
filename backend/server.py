@@ -69,6 +69,7 @@ INTAKE_DB_PATH = os.environ.get('INTAKE_DB_PATH', '/var/www/sonzo/data/intake.db
 INTAKE_EMAIL_TO = os.environ.get('INTAKE_EMAIL_TO', '')
 SMTP_HOST = os.environ.get('SMTP_HOST', '')
 SMTP_PORT = int(os.environ.get('SMTP_PORT', '587'))
+SMTP_USE_SSL = os.environ.get('SMTP_USE_SSL', '').lower() == 'true'
 SMTP_USERNAME = os.environ.get('SMTP_USERNAME', '')
 SMTP_PASSWORD = os.environ.get('SMTP_PASSWORD', '')
 SMTP_FROM = os.environ.get('SMTP_FROM', '')
@@ -528,10 +529,15 @@ def send_intake_email(payload: IntakeSubmission, metadata: Dict[str, str]) -> No
     message["To"] = INTAKE_EMAIL_TO
     message.set_content("\n".join(lines))
 
-    with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=15) as smtp:
-        smtp.starttls()
-        smtp.login(SMTP_USERNAME, SMTP_PASSWORD)
-        smtp.send_message(message)
+    if SMTP_USE_SSL or SMTP_PORT == 465:
+        with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, timeout=15) as smtp:
+            smtp.login(SMTP_USERNAME, SMTP_PASSWORD)
+            smtp.send_message(message)
+    else:
+        with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=15) as smtp:
+            smtp.starttls()
+            smtp.login(SMTP_USERNAME, SMTP_PASSWORD)
+            smtp.send_message(message)
 
 def send_intake_email_safe(payload: IntakeSubmission, metadata: Dict[str, str]) -> None:
     try:
