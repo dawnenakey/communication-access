@@ -1,4 +1,4 @@
-from fastapi import FastAPI, APIRouter, HTTPException, Request, Response, UploadFile, File, Form, Depends
+from fastapi import FastAPI, APIRouter, HTTPException, Request, Response, UploadFile, File, Form, Depends, BackgroundTasks
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse, FileResponse
 from dotenv import load_dotenv
@@ -533,6 +533,12 @@ def send_intake_email(payload: IntakeSubmission, metadata: Dict[str, str]) -> No
         smtp.login(SMTP_USERNAME, SMTP_PASSWORD)
         smtp.send_message(message)
 
+def send_intake_email_safe(payload: IntakeSubmission, metadata: Dict[str, str]) -> None:
+    try:
+        send_intake_email(payload, metadata)
+    except Exception as exc:
+        logger.warning(f"Failed to send intake email: {exc}")
+
 async def get_current_user(request: Request) -> User:
     """Get current user from session token in cookie or Authorization header"""
     session_token = request.cookies.get("session_token")
@@ -656,7 +662,7 @@ async def login(login_data: LoginRequest, response: Response):
 # ============== INTAKE ROUTES ==============
 
 @api_router.post("/intake")
-async def submit_intake(request: Request, payload: IntakeSubmission):
+async def submit_intake(request: Request, payload: IntakeSubmission, background_tasks: BackgroundTasks):
     if not payload.firstName or not payload.lastName or not payload.email:
         raise HTTPException(status_code=400, detail="Missing required fields")
     if "@" not in payload.email:
@@ -670,17 +676,15 @@ async def submit_intake(request: Request, payload: IntakeSubmission):
     await run_in_threadpool(init_intake_db)
     submission_id = await run_in_threadpool(save_intake_submission, payload, metadata)
 
-    email_sent = False
-    try:
-        await run_in_threadpool(send_intake_email, payload, metadata)
-        email_sent = True
-    except Exception as exc:
-        logger.warning(f"Failed to send intake email: {exc}")
+    email_queued = False
+    if SMTP_HOST and SMTP_USERNAME and SMTP_PASSWORD and SMTP_FROM and INTAKE_EMAIL_TO:
+        background_tasks.add_task(send_intake_email_safe, payload, metadata)
+        email_queued = True
 
     return {
         "status": "ok",
         "submission_id": submission_id,
-        "email_sent": email_sent,
+        "email_queued": email_queued,
     }
 
 @api_router.post("/auth/session")
