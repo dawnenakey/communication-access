@@ -7,7 +7,7 @@ from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import logging
 from pathlib import Path
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 from typing import List, Optional, Dict, Any
 import uuid
 from datetime import datetime, timezone, timedelta
@@ -17,6 +17,10 @@ import json
 import sqlite3
 import smtplib
 from email.message import EmailMessage
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from email.mime.base import MIMEBase
+from email import encoders
 
 # Password hashing
 from passlib.context import CryptContext
@@ -465,13 +469,28 @@ def init_intake_db() -> None:
                 use_case TEXT,
                 timeline TEXT,
                 additional_notes TEXT,
+                file_name TEXT,
+                file_path TEXT,
+                file_type TEXT,
+                file_size INTEGER,
                 ip_address TEXT,
                 user_agent TEXT
             )
             """
         )
+        # Add new columns if the table already exists without them
+        for column, column_type in [
+            ("file_name", "TEXT"),
+            ("file_path", "TEXT"),
+            ("file_type", "TEXT"),
+            ("file_size", "INTEGER"),
+        ]:
+            try:
+                conn.execute(f"ALTER TABLE intake_submissions ADD COLUMN {column} {column_type}")
+            except sqlite3.OperationalError:
+                pass
 
-def save_intake_submission(payload: IntakeSubmission, metadata: Dict[str, str]) -> int:
+def save_intake_submission(payload: IntakeSubmission, metadata: Dict[str, str], file_info: Dict[str, Any]) -> int:
     created_at = datetime.now(timezone.utc).isoformat()
     with sqlite3.connect(INTAKE_DB_PATH) as conn:
         cursor = conn.cursor()
@@ -480,8 +499,9 @@ def save_intake_submission(payload: IntakeSubmission, metadata: Dict[str, str]) 
             INSERT INTO intake_submissions (
                 created_at, first_name, last_name, email, phone,
                 organization, role, service_type, use_case, timeline,
-                additional_notes, ip_address, user_agent
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                additional_notes, file_name, file_path, file_type, file_size,
+                ip_address, user_agent
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 created_at,
@@ -495,13 +515,17 @@ def save_intake_submission(payload: IntakeSubmission, metadata: Dict[str, str]) 
                 payload.useCase,
                 payload.timeline,
                 payload.additionalNotes,
+                file_info.get("file_name"),
+                file_info.get("file_path"),
+                file_info.get("file_type"),
+                file_info.get("file_size"),
                 metadata.get("ip_address"),
                 metadata.get("user_agent"),
             ),
         )
         return cursor.lastrowid
 
-def send_intake_email(payload: IntakeSubmission, metadata: Dict[str, str]) -> None:
+def send_intake_email(payload: IntakeSubmission, metadata: Dict[str, str], attachment: Dict[str, Any]) -> None:
     if not (SMTP_HOST and SMTP_USERNAME and SMTP_PASSWORD and SMTP_FROM and INTAKE_EMAIL_TO):
         raise RuntimeError("SMTP settings are not fully configured")
 
@@ -531,6 +555,13 @@ def send_intake_email(payload: IntakeSubmission, metadata: Dict[str, str]) -> No
     message["From"] = SMTP_FROM
     message["To"] = INTAKE_EMAIL_TO
     message.set_content("\n".join(lines))
+    if attachment:
+        message.add_attachment(
+            attachment["content"],
+            maintype=attachment["maintype"],
+            subtype=attachment["subtype"],
+            filename=attachment["filename"],
+        )
 
     if SMTP_USE_SSL or SMTP_PORT == 465:
         with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, timeout=15) as smtp:
@@ -542,7 +573,7 @@ def send_intake_email(payload: IntakeSubmission, metadata: Dict[str, str]) -> No
             smtp.login(SMTP_USERNAME, SMTP_PASSWORD)
             smtp.send_message(message)
 
-def send_intake_email_ses(payload: IntakeSubmission, metadata: Dict[str, str]) -> None:
+def send_intake_email_ses(payload: IntakeSubmission, metadata: Dict[str, str], attachment: Dict[str, Any]) -> None:
     if not (SES_REGION and SES_FROM and SES_TO):
         raise RuntimeError("SES settings are not fully configured")
     if not BEDROCK_AVAILABLE:
@@ -569,22 +600,42 @@ def send_intake_email_ses(payload: IntakeSubmission, metadata: Dict[str, str]) -
         f"User Agent: {metadata.get('user_agent', '-')}",
     ]
 
-    client = boto3.client("ses", region_name=SES_REGION)
-    client.send_email(
-        Source=SES_FROM,
-        Destination={"ToAddresses": [SES_TO]},
-        Message={
-            "Subject": {"Data": subject},
-            "Body": {"Text": {"Data": "\n".join(lines)}},
-        },
-    )
+    if attachment:
+        msg = MIMEMultipart()
+        msg["Subject"] = subject
+        msg["From"] = SES_FROM
+        msg["To"] = SES_TO
+        msg.attach(MIMEText("\n".join(lines), "plain"))
 
-def send_intake_email_safe(payload: IntakeSubmission, metadata: Dict[str, str]) -> None:
+        part = MIMEBase(attachment["maintype"], attachment["subtype"])
+        part.set_payload(attachment["content"])
+        encoders.encode_base64(part)
+        part.add_header("Content-Disposition", f'attachment; filename="{attachment["filename"]}"')
+        msg.attach(part)
+
+        client = boto3.client("ses", region_name=SES_REGION)
+        client.send_raw_email(
+            Source=SES_FROM,
+            Destinations=[SES_TO],
+            RawMessage={"Data": msg.as_string()},
+        )
+    else:
+        client = boto3.client("ses", region_name=SES_REGION)
+        client.send_email(
+            Source=SES_FROM,
+            Destination={"ToAddresses": [SES_TO]},
+            Message={
+                "Subject": {"Data": subject},
+                "Body": {"Text": {"Data": "\n".join(lines)}},
+            },
+        )
+
+def send_intake_email_safe(payload: IntakeSubmission, metadata: Dict[str, str], attachment: Dict[str, Any]) -> None:
     try:
         if SMTP_HOST and SMTP_USERNAME and SMTP_PASSWORD and SMTP_FROM and INTAKE_EMAIL_TO:
-            send_intake_email(payload, metadata)
+            send_intake_email(payload, metadata, attachment)
         elif SES_REGION and SES_FROM and SES_TO:
-            send_intake_email_ses(payload, metadata)
+            send_intake_email_ses(payload, metadata, attachment)
         else:
             raise RuntimeError("No email configuration available")
     except Exception as exc:
@@ -713,7 +764,58 @@ async def login(login_data: LoginRequest, response: Response):
 # ============== INTAKE ROUTES ==============
 
 @api_router.post("/intake")
-async def submit_intake(request: Request, payload: IntakeSubmission, background_tasks: BackgroundTasks):
+async def submit_intake(request: Request, background_tasks: BackgroundTasks):
+    content_type = request.headers.get("content-type", "")
+    file_info: Dict[str, Any] = {}
+    attachment: Dict[str, Any] = {}
+
+    if content_type.startswith("application/json"):
+        data = await request.json()
+        try:
+            payload = IntakeSubmission(**data)
+        except ValidationError as exc:
+            raise HTTPException(status_code=400, detail=exc.errors())
+    else:
+        form = await request.form()
+        data = {k: form.get(k) for k in form.keys() if k != "logoFile"}
+        try:
+            payload = IntakeSubmission(**data)
+        except ValidationError as exc:
+            raise HTTPException(status_code=400, detail=exc.errors())
+
+        upload = form.get("logoFile")
+        if upload:
+            max_bytes = 10 * 1024 * 1024
+            content = await upload.read()
+            if len(content) > max_bytes:
+                raise HTTPException(status_code=400, detail="File must be 10MB or smaller")
+
+            uploads_dir = "/var/www/sonzo/data/uploads"
+            os.makedirs(uploads_dir, exist_ok=True)
+            safe_name = upload.filename or "upload"
+            file_id = uuid.uuid4().hex
+            stored_name = f"{file_id}_{safe_name}"
+            file_path = os.path.join(uploads_dir, stored_name)
+            with open(file_path, "wb") as handle:
+                handle.write(content)
+
+            file_info = {
+                "file_name": safe_name,
+                "file_path": file_path,
+                "file_type": upload.content_type,
+                "file_size": len(content),
+            }
+            maintype = "application"
+            subtype = "octet-stream"
+            if upload.content_type and "/" in upload.content_type:
+                maintype, subtype = upload.content_type.split("/", 1)
+            attachment = {
+                "filename": safe_name,
+                "content": content,
+                "maintype": maintype,
+                "subtype": subtype,
+            }
+
     if not payload.firstName or not payload.lastName or not payload.email:
         raise HTTPException(status_code=400, detail="Missing required fields")
     if "@" not in payload.email:
@@ -725,14 +827,14 @@ async def submit_intake(request: Request, payload: IntakeSubmission, background_
     }
 
     await run_in_threadpool(init_intake_db)
-    submission_id = await run_in_threadpool(save_intake_submission, payload, metadata)
+    submission_id = await run_in_threadpool(save_intake_submission, payload, metadata, file_info)
 
     email_queued = False
     if (
         (SMTP_HOST and SMTP_USERNAME and SMTP_PASSWORD and SMTP_FROM and INTAKE_EMAIL_TO)
         or (SES_REGION and SES_FROM and SES_TO)
     ):
-        background_tasks.add_task(send_intake_email_safe, payload, metadata)
+        background_tasks.add_task(send_intake_email_safe, payload, metadata, attachment)
         email_queued = True
 
     return {

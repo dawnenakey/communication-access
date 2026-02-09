@@ -450,6 +450,11 @@
               ></textarea>
             </div>
 
+            <div style="margin-top: 16px;">
+              <label for="logoFile">Logo / Vector Upload (max 10MB)</label>
+              <input id="logoFile" name="logoFile" type="file" />
+            </div>
+
             <button class="submit-button" type="submit" id="submit-btn">
               Submit Inquiry
             </button>
@@ -504,7 +509,8 @@
         event.preventDefault();
         clearError();
 
-        const data = Object.fromEntries(new FormData(form));
+        const formData = new FormData(form);
+        const data = Object.fromEntries(formData);
         if (!data.firstName || !data.lastName || !data.email) {
           showError("Please fill in all required fields.");
           return;
@@ -515,16 +521,19 @@
           return;
         }
 
+        const file = formData.get("logoFile");
+        if (file && file.size && file.size > 10 * 1024 * 1024) {
+          showError("File must be 10MB or smaller.");
+          return;
+        }
+
         submitBtn.disabled = true;
         submitBtn.textContent = "Submitting...";
 
         try {
           const response = await fetch("/api/intake", {
             method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify(data),
+            body: formData,
           });
 
           if (!response.ok) {
