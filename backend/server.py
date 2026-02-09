@@ -501,7 +501,7 @@ def save_intake_submission(payload: IntakeSubmission, metadata: Dict[str, str], 
                 organization, role, service_type, use_case, timeline,
                 additional_notes, file_name, file_path, file_type, file_size,
                 ip_address, user_agent
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 created_at,
