@@ -73,6 +73,9 @@ SMTP_USE_SSL = os.environ.get('SMTP_USE_SSL', '').lower() == 'true'
 SMTP_USERNAME = os.environ.get('SMTP_USERNAME', '')
 SMTP_PASSWORD = os.environ.get('SMTP_PASSWORD', '')
 SMTP_FROM = os.environ.get('SMTP_FROM', '')
+SES_REGION = os.environ.get('SES_REGION', '')
+SES_FROM = os.environ.get('SES_FROM', '')
+SES_TO = os.environ.get('SES_TO', '')
 
 if STRIPE_AVAILABLE and STRIPE_SECRET_KEY:
     stripe.api_key = STRIPE_SECRET_KEY
@@ -539,9 +542,51 @@ def send_intake_email(payload: IntakeSubmission, metadata: Dict[str, str]) -> No
             smtp.login(SMTP_USERNAME, SMTP_PASSWORD)
             smtp.send_message(message)
 
+def send_intake_email_ses(payload: IntakeSubmission, metadata: Dict[str, str]) -> None:
+    if not (SES_REGION and SES_FROM and SES_TO):
+        raise RuntimeError("SES settings are not fully configured")
+    if not BEDROCK_AVAILABLE:
+        raise RuntimeError("boto3 not available for SES")
+
+    subject = f"New SonZo intake: {payload.firstName} {payload.lastName}"
+    if payload.serviceType:
+        subject += f" ({payload.serviceType})"
+
+    lines = [
+        "New intake submission received:",
+        "",
+        f"Name: {payload.firstName} {payload.lastName}",
+        f"Email: {payload.email}",
+        f"Phone: {payload.phone or '-'}",
+        f"Organization: {payload.organization or '-'}",
+        f"Role: {payload.role or '-'}",
+        f"Service Type: {payload.serviceType or '-'}",
+        f"Timeline: {payload.timeline or '-'}",
+        f"Use Case: {payload.useCase or '-'}",
+        f"Additional Notes: {payload.additionalNotes or '-'}",
+        "",
+        f"IP Address: {metadata.get('ip_address', '-')}",
+        f"User Agent: {metadata.get('user_agent', '-')}",
+    ]
+
+    client = boto3.client("ses", region_name=SES_REGION)
+    client.send_email(
+        Source=SES_FROM,
+        Destination={"ToAddresses": [SES_TO]},
+        Message={
+            "Subject": {"Data": subject},
+            "Body": {"Text": {"Data": "\n".join(lines)}},
+        },
+    )
+
 def send_intake_email_safe(payload: IntakeSubmission, metadata: Dict[str, str]) -> None:
     try:
-        send_intake_email(payload, metadata)
+        if SMTP_HOST and SMTP_USERNAME and SMTP_PASSWORD and SMTP_FROM and INTAKE_EMAIL_TO:
+            send_intake_email(payload, metadata)
+        elif SES_REGION and SES_FROM and SES_TO:
+            send_intake_email_ses(payload, metadata)
+        else:
+            raise RuntimeError("No email configuration available")
     except Exception as exc:
         logger.warning(f"Failed to send intake email: {exc}")
 
@@ -683,7 +728,10 @@ async def submit_intake(request: Request, payload: IntakeSubmission, background_
     submission_id = await run_in_threadpool(save_intake_submission, payload, metadata)
 
     email_queued = False
-    if SMTP_HOST and SMTP_USERNAME and SMTP_PASSWORD and SMTP_FROM and INTAKE_EMAIL_TO:
+    if (
+        (SMTP_HOST and SMTP_USERNAME and SMTP_PASSWORD and SMTP_FROM and INTAKE_EMAIL_TO)
+        or (SES_REGION and SES_FROM and SES_TO)
+    ):
         background_tasks.add_task(send_intake_email_safe, payload, metadata)
         email_queued = True
 
