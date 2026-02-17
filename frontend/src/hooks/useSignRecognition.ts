@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
+import { HandLandmarker, FilesetResolver } from '@mediapipe/tasks-vision';
 
 export interface HandLandmark {
   x: number;
@@ -133,8 +134,6 @@ class MediaPipeHandsDetector {
 
   private async doInitialize(): Promise<void> {
     try {
-      const { HandLandmarker, FilesetResolver } = await import('@mediapipe/tasks-vision');
-
       const vision = await FilesetResolver.forVisionTasks(
         'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.32/wasm'
       );

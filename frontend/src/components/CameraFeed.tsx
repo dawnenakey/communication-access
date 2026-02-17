@@ -667,7 +667,8 @@ const CameraFeed: React.FC<CameraFeedProps> = ({
 
       {/* Main Camera View */}
       <div className="relative aspect-video bg-black">
-        <video ref={videoRef} className="hidden" playsInline muted />
+        {/* Video must not be display:none or Chrome pauses muted video decoding → black canvas. Use invisible + full size. */}
+        <video ref={videoRef} className="invisible absolute inset-0 w-full h-full object-cover" playsInline muted autoPlay />
 
         {isActive ? (
           <>

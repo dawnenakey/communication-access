@@ -67,7 +67,6 @@
     "uuid": "^11.1.0",
     "vaul": "^0.9.3",
     "zod": "^3.23.8",
-    "@mediapipe/hands": "^0.4.1675469240",
     "@mediapipe/tasks-vision": "^0.10.8",
     "@react-three/drei": "^9.88.0",
     "@react-three/fiber": "^8.15.0",
