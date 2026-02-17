@@ -7,6 +7,13 @@ import {
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 
+// API base - use same origin on demo.sonzo.io for GenASL/avatar, else external
+const getAPI = () => {
+  if (import.meta.env?.VITE_API_URL) return import.meta.env.VITE_API_URL;
+  if (typeof window !== 'undefined' && window.location.hostname === 'demo.sonzo.io') return '';
+  return 'https://api.sonzo.io';
+};
+
 // Realistic human signer images
 const SIGNER_AVATARS = {
   female: 'https://d64gsuwffb70l.cloudfront.net/69757acc7df661eddaca039f_1769662049269_f23c9fd3.jpg',
@@ -86,7 +93,39 @@ const VideoAvatar: React.FC<VideoAvatarProps> = ({
   }, []);
 
   // Fetch videos for a sequence of signs
+  // On demo.sonzo.io: try /api/generate-sequence (avatar) first for GenASL-style videos
   const fetchVideoSequence = useCallback(async (signs: string[]): Promise<VideoData[]> => {
+    const api = getAPI();
+    if (api === '' || api === undefined) {
+      // On demo.sonzo.io - try avatar generate-sequence first
+      try {
+        const glossSigns = signs.map(s => s.toUpperCase().replace(/\s+/g, '_'));
+        const res = await fetch('/api/generate-sequence', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ signs: glossSigns }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          const url = data.video_url || data.url;
+          if (url) {
+            const fullUrl = url.startsWith('http') ? url : `${window.location.origin}${url.startsWith('/') ? '' : '/'}${url}`;
+            return [{
+              sign: signs.join(' '),
+              videoUrl: fullUrl,
+              thumbnailUrl: '',
+              duration: 5000,
+              signer: 'genasl',
+              category: 'sequence',
+              difficulty: 'beginner',
+              available: true,
+            }];
+          }
+        }
+      } catch (e) {
+        console.log('GenASL/avatar generate-sequence fallback:', e);
+      }
+    }
     try {
       const { data, error } = await supabase.functions.invoke('asl-video-manager', {
         body: { action: 'get_sequence', signs }
