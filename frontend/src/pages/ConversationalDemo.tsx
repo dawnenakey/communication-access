@@ -8,8 +8,13 @@ import {
   MessageCircle, Video, Volume2, RefreshCw, User, Bot, Mic
 } from "lucide-react";
 
-// API endpoint - can be configured for production
-const API = import.meta.env?.VITE_API_URL || "https://api.sonzo.io";
+// API endpoint - use same origin on demo.sonzo.io, else api.sonzo.io
+const getAPI = () => {
+  if (import.meta.env?.VITE_API_URL) return import.meta.env.VITE_API_URL;
+  if (typeof window !== "undefined" && window.location.hostname === "demo.sonzo.io") return "";
+  return "https://api.sonzo.io";
+};
+const API = getAPI();
 
 /**
  * ConversationalDemo - Standalone Bidirectional Sign Language Demo
@@ -254,6 +259,10 @@ export default function ConversationalDemo() {
           body: JSON.stringify(payload),
         });
         data = await response.json();
+        if (!response.ok || !data.system_response) {
+          console.log("Using demo mode (API error or no system_response)");
+          data = generateDemoResponse(text || "Hello");
+        }
       } catch (authError) {
         // If auth fails, use demo/fallback response
         console.log("Using demo mode");
@@ -262,6 +271,25 @@ export default function ConversationalDemo() {
 
       if (!conversationId && data.conversation_id) {
         setConversationId(data.conversation_id);
+      }
+
+      // If no video URL but we have ASL gloss, try avatar generate-sequence (demo.sonzo.io)
+      const systemResponse = data.system_response || {};
+      let videoUrl = systemResponse.video_url;
+      if (!videoUrl && systemResponse.asl_gloss?.length > 0) {
+        try {
+          const seqRes = await fetch(`${API}/api/generate-sequence`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ signs: systemResponse.asl_gloss }),
+          });
+          if (seqRes.ok) {
+            const seqData = await seqRes.json();
+            videoUrl = seqData.video_url || seqData.url;
+          }
+        } catch {
+          /* ignore */
+        }
       }
 
       // Add messages with video URL from GenASL
@@ -278,7 +306,7 @@ export default function ConversationalDemo() {
         role: "system",
         content: data.system_response?.content || "I understand!",
         asl_gloss: data.system_response?.asl_gloss || ["UNDERSTAND"],
-        video_url: data.system_response?.video_url || null,
+        video_url: videoUrl ?? data.system_response?.video_url ?? null,
         timestamp: new Date().toISOString()
       };
 

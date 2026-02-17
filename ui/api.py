@@ -234,7 +234,10 @@ async def root():
     """Serve main UI."""
     index_path = ui_dir / "index.html"
     if index_path.exists():
-        return FileResponse(str(index_path))
+        response = FileResponse(str(index_path))
+        response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        response.headers["Pragma"] = "no-cache"
+        return response
     return {"message": "SonZo AI UI API", "version": "1.0.0"}
 
 

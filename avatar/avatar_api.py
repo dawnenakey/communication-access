@@ -511,6 +511,12 @@ class GenerateSignRequest(BaseModel):
     """Request to generate a sign video on-the-fly."""
     sign: str = Field(..., description="Sign name (e.g., 'HELLO')")
     quality: str = Field("standard", description="Quality: preview, standard, high, production")
+
+
+class GenerateSequenceRequest(BaseModel):
+    """Request to generate a sequence of signs (sentence in ASL)."""
+    signs: List[str] = Field(..., description="List of sign names (e.g., ['HELLO', 'HOW', 'YOU'])")
+    quality: str = Field("standard", description="Quality: preview, standard, high, production")
     avatar_id: Optional[str] = Field(None, description="Avatar ID for face swap (optional)")
 
 
@@ -664,10 +670,7 @@ async def generate_sign_realtime(request: GenerateSignRequest):
 
 
 @app.post("/api/generate-sequence")
-async def generate_sign_sequence(
-    signs: List[str],
-    quality: str = "standard"
-):
+async def generate_sign_sequence(request: GenerateSequenceRequest):
     """
     Generate a video for a sequence of signs (e.g., a sentence in ASL).
 
@@ -680,6 +683,9 @@ async def generate_sign_sequence(
             status_code=503,
             detail="Real-time avatar generation not available"
         )
+
+    signs = request.signs
+    quality = request.quality
 
     # Validate all signs
     available = set(generator.get_available_signs())
@@ -696,7 +702,7 @@ async def generate_sign_sequence(
 
     # Map quality
     from realtime_avatar_generator import RenderQuality
-    quality_enum = RenderQuality(quality.lower())
+    quality_enum = RenderQuality(quality.lower()) if quality else RenderQuality.STANDARD
 
     # Generate sequence
     try:
