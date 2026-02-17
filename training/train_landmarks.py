@@ -41,7 +41,12 @@ from torch.utils.data import DataLoader, Dataset
 from torch.optim.lr_scheduler import OneCycleLR, CosineAnnealingLR
 
 import numpy as np
-from tqdm import tqdm
+try:
+    from tqdm import tqdm
+except ImportError:
+    def tqdm(iterable, **kwargs):
+        """No-op progress bar when tqdm not installed."""
+        return iterable
 
 logging.basicConfig(
     level=logging.INFO,

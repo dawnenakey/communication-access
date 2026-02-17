@@ -39,7 +39,7 @@ pip install fastapi uvicorn opencv-python-headless numpy pillow
 pip install torch --index-url https://download.pytorch.org/whl/cpu
 
 # Required for trained landmark model (real sign recognition)
-pip install mediapipe
+pip install mediapipe tqdm
 
 # Optional: avatar face swap (heavy - add if avatar create fails)
 # pip install insightface onnxruntime

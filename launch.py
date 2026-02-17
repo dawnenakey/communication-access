@@ -74,7 +74,10 @@ uvicorn.run(app, host='0.0.0.0', port=8080)
         ]
 
         # Add recognition service: use trained landmark model when available
-        if LANDMARK_MODEL_PATH.exists():
+        model_exists = LANDMARK_MODEL_PATH.exists()
+        if not model_exists:
+            print(f"  (Landmark model not found at {LANDMARK_MODEL_PATH})")
+        if model_exists:
             services.append({
                 "name": "recognition",
                 "description": "Recognition API (Trained Landmark Model)",
