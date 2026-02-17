@@ -294,7 +294,9 @@ class LandmarkModel:
             print(f"Loaded model with {len(self.label_map)} classes")
 
         except Exception as e:
+            import traceback
             print(f"Error loading model: {e}")
+            traceback.print_exc()
             self.model = None
 
     def extract_landmarks(self, image: np.ndarray) -> Tuple[np.ndarray, bool, float]:
