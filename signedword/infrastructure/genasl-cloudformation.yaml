@@ -376,8 +376,8 @@ Resources:
       Environment:
         Variables:
           VIDEOS_BUCKET: !Ref GenASLVideosBucket
-      Layers:
-        - !Sub 'arn:aws:lambda:${AWS::Region}:770693421928:layer:Klayers-p311-ffmpeg:2'
+      # Layers: Klayers ffmpeg layer (770693421928) requires cross-account access - removed for initial deploy
+      # Add ffmpeg layer via SAR or custom layer after stack is created
       Code:
         ZipFile: |
           import json
