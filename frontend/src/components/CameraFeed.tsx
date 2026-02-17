@@ -393,7 +393,8 @@ const CameraFeed: React.FC<CameraFeedProps> = ({
     const startTime = performance.now();
 
     // Draw video frame or simulated background
-    if (cameraType === 'webcam' && video && webcamStream) {
+    // Only draw when video has frames (readyState >= 2, videoWidth > 0) to avoid black canvas
+    if (cameraType === 'webcam' && video && webcamStream && video.readyState >= 2 && video.videoWidth > 0) {
       ctx.drawImage(video, 0, 0, width, height);
     } else {
       const gradient = ctx.createLinearGradient(0, 0, width, height);

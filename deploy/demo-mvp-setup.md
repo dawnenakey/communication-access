@@ -134,6 +134,8 @@ sudo systemctl status sonzo-demo
 | MediaPipe error | Use `--demo` mode (works without mediapipe) |
 | Avatar fails | Avatar needs insightface/onnx – optional for MVP |
 | 502 Bad Gateway | Check `systemctl status sonzo-demo` and `journalctl -u sonzo-demo -f` |
+| **503 on /api/generate-sequence** | Create demo videos: `cd /home/ubuntu/communication-access && bash avatar/video_library/create_demo_videos.sh` (requires ffmpeg) |
+| Black avatar video | Same as above – avatar needs videos in `avatar/video_library/` |
 
 ---
 
