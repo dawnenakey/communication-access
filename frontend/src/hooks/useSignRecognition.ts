@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
-import { HandLandmarker, FilesetResolver } from '@mediapipe/tasks-vision';
+
+// Load MediaPipe from CDN to avoid Vite bundling issues ("t is not a constructor")
 
 export interface HandLandmark {
   x: number;
@@ -134,6 +135,11 @@ class MediaPipeHandsDetector {
 
   private async doInitialize(): Promise<void> {
     try {
+      // Load from CDN - bypasses Vite bundler which breaks HandLandmarker
+      const { HandLandmarker, FilesetResolver } = await import(
+        /* @vite-ignore */ 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.32/vision_bundle.mjs'
+      );
+
       const vision = await FilesetResolver.forVisionTasks(
         'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.32/wasm'
       );
@@ -142,16 +148,16 @@ class MediaPipeHandsDetector {
         baseOptions: {
           modelAssetPath:
             'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task',
-          delegate: 'GPU', // Uses browser's WebGL GPU for faster inference
+          delegate: 'GPU',
         },
         runningMode: 'VIDEO',
         numHands: 2,
       });
 
       this.isInitialized = true;
-      console.log('MediaPipe HandLandmarker initialized successfully');
+      console.log('[MediaPipe] HandLandmarker initialized successfully');
     } catch (error) {
-      console.warn('MediaPipe HandLandmarker initialization failed, using fallback:', error);
+      console.warn('MediaPipe Hands initialization failed, using fallback:', error);
       this.isInitialized = false;
     }
   }
