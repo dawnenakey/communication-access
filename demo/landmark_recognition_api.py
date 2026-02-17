@@ -168,6 +168,8 @@ class RecognitionRequest(BaseModel):
     """Recognition request with base64 image."""
     image: str  # Base64 encoded image
     include_landmarks: bool = False
+    timestamp: Optional[int] = None  # Compat with demo API client
+    single: bool = False  # Compat with demo API client
 
 
 class VideoRecognitionRequest(BaseModel):
@@ -540,9 +542,8 @@ async def get_glossary():
     return GlossaryResponse(signs=signs, count=len(signs))
 
 
-@app.post("/recognize", response_model=RecognitionResult)
-async def recognize_sign(request: RecognitionRequest):
-    """Recognize sign from a single image frame."""
+async def _recognize_sign_impl(request: RecognitionRequest) -> RecognitionResult:
+    """Shared implementation for /recognize and /api/recognize."""
     start_time = time.time()
 
     if model is None:
@@ -599,6 +600,18 @@ async def recognize_sign(request: RecognitionRequest):
             message=f"Error: {str(e)}",
             latency_ms=(time.time() - start_time) * 1000
         )
+
+
+@app.post("/recognize", response_model=RecognitionResult)
+async def recognize_sign(request: RecognitionRequest):
+    """Recognize sign from a single image frame."""
+    return await _recognize_sign_impl(request)
+
+
+@app.post("/api/recognize", response_model=RecognitionResult)
+async def recognize_sign_api(request: RecognitionRequest):
+    """Recognize sign (nginx proxy path)."""
+    return await _recognize_sign_impl(request)
 
 
 @app.post("/recognize-video", response_model=RecognitionResult)
@@ -718,6 +731,17 @@ def main():
                        help='Disable ASL-to-English translation')
 
     args = parser.parse_args()
+
+    # Require PyTorch and MediaPipe
+    if not TORCH_AVAILABLE:
+        print("ERROR: PyTorch is required. Install with:")
+        print("  pip install torch")
+        print("  # Or for CPU-only: pip install torch --index-url https://download.pytorch.org/whl/cpu")
+        sys.exit(1)
+    if not MEDIAPIPE_AVAILABLE:
+        print("ERROR: MediaPipe is required for landmark extraction. Install with:")
+        print("  pip install mediapipe")
+        sys.exit(1)
 
     # Initialize model
     print(f"Loading model from {args.model}...")

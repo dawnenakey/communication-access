@@ -203,6 +203,17 @@ const CameraFeed: React.FC<CameraFeedProps> = ({
     return () => stopWebcam();
   }, [isActive, cameraType]);
 
+  // Auto-start recording when camera is active so signing is always captured
+  useEffect(() => {
+    if (isActive) {
+      clearBuffer();
+      setCurrentSentence([]);
+      setIsRecording(true);
+    } else {
+      setIsRecording(false);
+    }
+  }, [isActive]);
+
   // Generate RTMPose-style 133 keypoints
   const generateFullPose = useCallback((): FullBodyPose => {
     const time = Date.now() / 1000;

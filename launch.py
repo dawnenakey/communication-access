@@ -27,6 +27,9 @@ from typing import Dict, List, Optional
 # Project root
 PROJECT_ROOT = Path(__file__).parent.absolute()
 
+# Default path for trained landmark model (used when available)
+LANDMARK_MODEL_PATH = PROJECT_ROOT / "models" / "best_landmark_model.pt"
+
 
 class ServiceManager:
     """Manages SonZo AI services."""
@@ -36,6 +39,14 @@ class ServiceManager:
         self.production = production
         self.processes: Dict[str, subprocess.Popen] = {}
         self.running = True
+
+    def _has_cuda(self) -> bool:
+        """Check if CUDA is available for PyTorch."""
+        try:
+            import torch
+            return torch.cuda.is_available()
+        except ImportError:
+            return False
 
     def get_services(self) -> List[Dict]:
         """Get service configurations."""
@@ -62,8 +73,21 @@ uvicorn.run(app, host='0.0.0.0', port=8080)
             },
         ]
 
-        # Add recognition service (demo or real)
-        if self.demo_mode:
+        # Add recognition service: use trained landmark model when available
+        if LANDMARK_MODEL_PATH.exists():
+            services.append({
+                "name": "recognition",
+                "description": "Recognition API (Trained Landmark Model)",
+                "command": [
+                    sys.executable, "demo/landmark_recognition_api.py",
+                    "--model", str(LANDMARK_MODEL_PATH),
+                    "--port", "8082",
+                    "--device", "cuda" if self._has_cuda() else "cpu",
+                ],
+                "port": 8082,
+                "health_endpoint": "/health"
+            })
+        elif self.demo_mode:
             services.append({
                 "name": "recognition",
                 "description": "Recognition API (Demo Mode)",
@@ -150,7 +174,9 @@ uvicorn.run(app, host='0.0.0.0', port=8080)
         print("SonZo AI - Service Launcher")
         print("=" * 60)
 
-        if self.demo_mode:
+        if LANDMARK_MODEL_PATH.exists():
+            print("Mode: REAL (trained landmark model)")
+        elif self.demo_mode:
             print("Mode: DEMO (simulated recognition)")
         elif self.production:
             print("Mode: PRODUCTION")

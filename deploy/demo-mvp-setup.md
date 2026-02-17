@@ -38,8 +38,8 @@ pip install fastapi uvicorn opencv-python-headless numpy pillow
 # Required by launch.py check (use CPU torch to save space)
 pip install torch --index-url https://download.pytorch.org/whl/cpu
 
-# Optional: mediapipe for hand detection (Python 3.11 recommended)
-# pip install mediapipe
+# Required for trained landmark model (real sign recognition)
+pip install mediapipe
 
 # Optional: avatar face swap (heavy - add if avatar create fails)
 # pip install insightface onnxruntime
@@ -55,6 +55,8 @@ source .venv/bin/activate
 python launch.py --check-deps
 python launch.py --demo
 ```
+
+**Real sign recognition:** If `models/best_landmark_model.pt` exists (from training), the launcher automatically uses the trained model instead of simulated recognition. No retraining needed.
 
 You should see:
 - UI: http://localhost:8081
@@ -134,8 +136,9 @@ sudo systemctl status sonzo-demo
 | MediaPipe error | Use `--demo` mode (works without mediapipe) |
 | Avatar fails | Avatar needs insightface/onnx – optional for MVP |
 | 502 Bad Gateway | Check `systemctl status sonzo-demo` and `journalctl -u sonzo-demo -f` |
-| **503 on /api/generate-sequence** | Create demo videos: `cd /home/ubuntu/communication-access && bash avatar/video_library/create_demo_videos.sh` (requires ffmpeg) |
+| **503 on /api/generate-sequence** | Create demo videos: `cd /home/ubuntu/communication-access && bash avatar/video_library/create_demo_videos.sh` (requires ffmpeg). Includes OAK, CAMERA, etc. for typed responses. |
 | Black avatar video | Same as above – avatar needs videos in `avatar/video_library/` |
+| **Real sign recognition** | Ensure `models/best_landmark_model.pt` exists. Launcher auto-uses it. Install mediapipe: `pip install mediapipe` |
 
 ---
 
