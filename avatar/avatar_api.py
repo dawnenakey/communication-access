@@ -24,6 +24,7 @@ import base64
 import json
 import os
 import shutil
+import subprocess
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -669,66 +670,96 @@ async def generate_sign_realtime(request: GenerateSignRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+def _concatenate_videos_ffmpeg(video_paths: List[Path], output_path: Path) -> Optional[str]:
+    """Concatenate videos using ffmpeg. Returns output path or None."""
+    if not video_paths:
+        return None
+    if len(video_paths) == 1:
+        shutil.copy2(video_paths[0], output_path)
+        return str(output_path)
+    list_path = output_path.parent / "concat_list.txt"
+    try:
+        with open(list_path, 'w') as f:
+            for p in video_paths:
+                f.write(f"file '{p.absolute()}'\n")
+        result = subprocess.run(
+            ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", str(list_path), "-c", "copy", str(output_path)],
+            capture_output=True, text=True, timeout=120
+        )
+        if result.returncode == 0 and output_path.exists():
+            return str(output_path)
+    except Exception as e:
+        print(f"Video concat error: {e}")
+    return None
+
+
 @app.post("/api/generate-sequence")
 async def generate_sign_sequence(request: GenerateSequenceRequest):
     """
     Generate a video for a sequence of signs (e.g., a sentence in ASL).
 
     Example: ["HELLO", "HOW", "YOU"] -> Single video saying "Hello, how are you?"
+
+    Uses real-time SMPL-X generation when available, or pre-recorded videos from
+    VIDEO_LIBRARY (e.g. avatar/video_library/HELLO.mp4) as fallback.
     """
-    generator = get_realtime_generator()
-
-    if generator is None:
-        raise HTTPException(
-            status_code=503,
-            detail="Real-time avatar generation not available"
-        )
-
-    signs = request.signs
+    signs = [s.upper() for s in request.signs]
     quality = request.quality
 
-    # Validate all signs
-    available = set(generator.get_available_signs())
-    invalid_signs = [s.upper() for s in signs if s.upper() not in available]
+    generator = get_realtime_generator()
 
-    if invalid_signs:
+    if generator is not None:
+        # Real-time generation (Blender + SMPL-X)
+        available = set(generator.get_available_signs())
+        invalid_signs = [s for s in signs if s not in available]
+        if invalid_signs:
+            raise HTTPException(
+                status_code=400,
+                detail={"message": f"Some signs not available: {invalid_signs}", "available_signs": list(available)}
+            )
+        from realtime_avatar_generator import RenderQuality
+        quality_enum = RenderQuality(quality.lower()) if quality else RenderQuality.STANDARD
+        try:
+            video_path = await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: generator.generate_sign_sequence(signs, quality_enum)
+            )
+            if video_path:
+                relative_path = Path(video_path).relative_to(Config.DATA_DIR)
+                return {"signs": signs, "video_url": f"/static/{relative_path}", "quality": quality}
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+
+    # Fallback: pre-recorded videos from VIDEO_LIBRARY
+    video_lib = Path(Config.VIDEO_LIBRARY)
+    video_paths = []
+    for sign in signs:
+        p = video_lib / f"{sign}.mp4"
+        if p.exists():
+            video_paths.append(p)
+        else:
+            p_alt = video_lib / f"{sign.lower()}.mp4"
+            if p_alt.exists():
+                video_paths.append(p_alt)
+    if not video_paths:
         raise HTTPException(
-            status_code=400,
+            status_code=503,
             detail={
-                "message": f"Some signs not available: {invalid_signs}",
-                "available_signs": list(available)
+                "message": "Real-time avatar generation not available. Install Blender + SMPL-X models, or add pre-recorded videos to avatar/video_library/ (e.g. HELLO.mp4, HOW.mp4, YOU.mp4).",
+                "video_library_path": str(video_lib.absolute()),
+                "requested_signs": signs
             }
         )
-
-    # Map quality
-    from realtime_avatar_generator import RenderQuality
-    quality_enum = RenderQuality(quality.lower()) if quality else RenderQuality.STANDARD
-
-    # Generate sequence
-    try:
-        video_path = await asyncio.get_event_loop().run_in_executor(
-            None,
-            lambda: generator.generate_sign_sequence(
-                [s.upper() for s in signs],
-                quality_enum
-            )
-        )
-
-        if not video_path:
-            raise HTTPException(status_code=500, detail="Failed to generate sequence")
-
-        relative_path = Path(video_path).relative_to(Config.DATA_DIR)
-
-        return {
-            "signs": [s.upper() for s in signs],
-            "video_url": f"/static/{relative_path}",
-            "quality": quality
-        }
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    output_dir = Config.DATA_DIR / "generated"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output_path = output_dir / f"sequence_{'_'.join(signs)}.mp4"
+    result_path = _concatenate_videos_ffmpeg(video_paths, output_path)
+    if not result_path:
+        raise HTTPException(status_code=500, detail="Failed to concatenate videos (ffmpeg required)")
+    relative_path = Path(result_path).relative_to(Config.DATA_DIR)
+    return {"signs": signs, "video_url": f"/static/{relative_path}", "quality": quality, "source": "video_library"}
 
 
 # =============================================================================
