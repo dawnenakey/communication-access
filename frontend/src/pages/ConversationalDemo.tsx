@@ -213,7 +213,7 @@ export default function ConversationalDemo() {
     } else if (lower.includes("how are you")) {
       response = { content: "I am good, thank you! How are you?", asl_gloss: ["GOOD", "THANK_YOU", "HOW", "YOU"] };
     } else if (lower.includes("thank")) {
-      response = { content: "You're welcome!", asl_gloss: ["WELCOME"] };
+      response = { content: "You're welcome!", asl_gloss: ["YES"] };
     } else if (lower.includes("bye") || lower.includes("goodbye")) {
       response = { content: "Goodbye! Have a great day!", asl_gloss: ["GOODBYE", "GOOD"] };
     } else if (lower.includes("name")) {
