@@ -6,8 +6,8 @@ set -e
 LIB="avatar/video_library"
 mkdir -p "$LIB"
 
-# Signs used by demo fallback responses
-SIGNS="HELLO HOW YOU GOOD THANK_YOU YES NICE_TO_MEET_YOU UNDERSTAND HELP NEED WHAT"
+# Signs used by demo fallback responses + common avatar response words
+SIGNS="HELLO HOW YOU GOOD THANK_YOU YES NICE_TO_MEET_YOU UNDERSTAND HELP NEED WHAT THAT GREAT QUESTION HERE MY ANSWER I AM CAN LEARN COMMUNICATE WELCOME HAPPY TODAY PLEASURE ASSIST THIS APP RECOGNIZES FULL SENTENCES USING AI"
 
 for sign in $SIGNS; do
   out="$LIB/${sign}.mp4"

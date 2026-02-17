@@ -734,6 +734,7 @@ async def generate_sign_sequence(request: GenerateSequenceRequest):
 
     # Fallback: pre-recorded videos from VIDEO_LIBRARY
     video_lib = Path(Config.VIDEO_LIBRARY)
+    FALLBACK_SIGN = "HELLO"  # Use for unknown signs so we always return a video
     video_paths = []
     for sign in signs:
         p = video_lib / f"{sign}.mp4"
@@ -743,6 +744,11 @@ async def generate_sign_sequence(request: GenerateSequenceRequest):
             p_alt = video_lib / f"{sign.lower()}.mp4"
             if p_alt.exists():
                 video_paths.append(p_alt)
+            else:
+                # Unknown sign: use fallback so we don't 503
+                fallback = video_lib / f"{FALLBACK_SIGN}.mp4"
+                if fallback.exists():
+                    video_paths.append(fallback)
     if not video_paths:
         raise HTTPException(
             status_code=503,
