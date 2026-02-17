@@ -150,6 +150,8 @@ app.add_middleware(
 
 # Serve static UI files
 ui_dir = Path(__file__).parent
+if (ui_dir / "assets").exists():
+    app.mount("/assets", StaticFiles(directory=str(ui_dir / "assets")), name="assets")
 if (ui_dir / "index.html").exists():
     app.mount("/static", StaticFiles(directory=str(ui_dir)), name="static")
 
