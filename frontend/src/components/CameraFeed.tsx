@@ -668,12 +668,25 @@ const CameraFeed: React.FC<CameraFeedProps> = ({
 
       {/* Main Camera View */}
       <div className="relative aspect-video bg-black">
-        {/* Video: use opacity-[0.01] not invisible - Chrome may pause decoding with visibility:hidden, causing black canvas */}
-        <video ref={videoRef} className="absolute inset-0 w-full h-full object-cover opacity-[0.01]" playsInline muted autoPlay />
+        {/* Webcam: show video directly - Chrome won't decode hidden video. OAK/Lumen: video hidden, canvas draws. */}
+        <video
+          ref={videoRef}
+          className={`absolute inset-0 w-full h-full object-cover ${cameraType === 'webcam' ? '' : 'opacity-0'}`}
+          playsInline
+          muted
+          autoPlay
+        />
 
         {isActive ? (
           <>
-            <canvas ref={canvasRef} width={640} height={480} className="w-full h-full object-cover" />
+            {/* Main canvas: draws video for OAK/Lumen. For webcam, hidden - we show video element directly. */}
+            <canvas
+              ref={canvasRef}
+              width={640}
+              height={480}
+              className={`absolute inset-0 w-full h-full object-cover ${cameraType === 'webcam' ? 'pointer-events-none' : ''}`}
+              style={cameraType === 'webcam' ? { visibility: 'hidden' } : undefined}
+            />
             <canvas ref={landmarkCanvasRef} width={640} height={480} className="absolute inset-0 w-full h-full object-cover pointer-events-none" />
             
             {showDepth && (cameraType === 'oak_ai' || cameraType === 'lumen') && (

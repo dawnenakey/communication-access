@@ -91,6 +91,8 @@ uvicorn.run(app, host='0.0.0.0', port=8080)
             env = os.environ.copy()
             env["PYTHONUNBUFFERED"] = "1"
             env["SONZO_DEMO_MODE"] = "1" if self.demo_mode else "0"
+            env["AVATAR_DATA_DIR"] = str(PROJECT_ROOT / "avatar_data")
+            env["VIDEO_LIBRARY"] = str(PROJECT_ROOT / "avatar" / "video_library")
 
             process = subprocess.Popen(
                 service["command"],

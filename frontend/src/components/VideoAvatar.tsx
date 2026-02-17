@@ -485,11 +485,12 @@ const VideoAvatar: React.FC<VideoAvatarProps> = ({
         {/* Real Video Player (when video URL available) */}
         {currentVideoUrl && (
           <video
+            key={currentVideoUrl}
             ref={videoRef}
             className="w-full h-full object-cover"
             muted={isMuted}
             playsInline
-            crossOrigin="anonymous"
+            autoPlay
             onEnded={handleVideoEnded}
             onTimeUpdate={handleTimeUpdate}
             onError={(e) => {
