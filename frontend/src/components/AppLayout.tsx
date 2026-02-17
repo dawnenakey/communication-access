@@ -169,11 +169,12 @@ const AppLayout: React.FC = () => {
   }, [user]);
 
   // Update connection status based on camera type
+  // Webcam: show "Ready" (no OAK hardware). OAK/Lumen: show hardware connection status.
   useEffect(() => {
     if (cameraType === 'oak_ai' || cameraType === 'lumen') {
-      setIsOAKConnected(true);
+      setIsOAKConnected(true); // OAK/Lumen connected
     } else {
-      setIsOAKConnected(false);
+      setIsOAKConnected(true); // Webcam: treat as "ready" (hide confusing "Disconnected")
     }
   }, [cameraType]);
 
