@@ -112,11 +112,12 @@ const SENTENCE_PATTERNS = [
   { signs: ['want', 'drink', 'water'], sentence: 'I want to drink water' },
 ];
 
-// MediaPipe Hands class wrapper
+// MediaPipe Tasks Vision HandLandmarker (replaces deprecated @mediapipe/hands)
 class MediaPipeHandsDetector {
-  private hands: any = null;
+  private handLandmarker: any = null;
   private isInitialized = false;
   private initPromise: Promise<void> | null = null;
+  private lastVideoTime = -1;
 
   async initialize(): Promise<boolean> {
     if (this.isInitialized) return true;
@@ -132,110 +133,70 @@ class MediaPipeHandsDetector {
 
   private async doInitialize(): Promise<void> {
     try {
-      // Dynamic import of MediaPipe Hands
-      const { Hands } = await import('@mediapipe/hands');
-      
-      this.hands = new Hands({
-        locateFile: (file: string) => {
-          return `https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469240/${file}`;
+      const { HandLandmarker, FilesetResolver } = await import('@mediapipe/tasks-vision');
+
+      const vision = await FilesetResolver.forVisionTasks(
+        'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.32/wasm'
+      );
+
+      this.handLandmarker = await HandLandmarker.createFromOptions(vision, {
+        baseOptions: {
+          modelAssetPath:
+            'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task',
+          delegate: 'GPU', // Uses browser's WebGL GPU for faster inference
         },
+        runningMode: 'VIDEO',
+        numHands: 2,
       });
 
-      this.hands.setOptions({
-        maxNumHands: 2,
-        modelComplexity: 1,
-        minDetectionConfidence: 0.7,
-        minTrackingConfidence: 0.5,
-      });
-
-      // Initialize with a test
-      await new Promise<void>((resolve, reject) => {
-        this.hands.onResults(() => {
-          this.isInitialized = true;
-          resolve();
-        });
-        
-        // Create a small test canvas
-        const canvas = document.createElement('canvas');
-        canvas.width = 64;
-        canvas.height = 64;
-        const ctx = canvas.getContext('2d');
-        if (ctx) {
-          ctx.fillStyle = '#000';
-          ctx.fillRect(0, 0, 64, 64);
-        }
-        
-        this.hands.send({ image: canvas }).catch(reject);
-
-        // Timeout fallback - increased to 10 seconds for slower networks
-        setTimeout(() => {
-          this.isInitialized = true;
-          resolve();
-        }, 10000);
-      });
-
-      console.log('MediaPipe Hands initialized successfully');
+      this.isInitialized = true;
+      console.log('MediaPipe HandLandmarker initialized successfully');
     } catch (error) {
-      console.warn('MediaPipe Hands initialization failed, using fallback:', error);
+      console.warn('MediaPipe HandLandmarker initialization failed, using fallback:', error);
       this.isInitialized = false;
     }
   }
 
   async detect(videoElement: HTMLVideoElement): Promise<{ left?: HandLandmark[]; right?: HandLandmark[] } | null> {
-    if (!this.hands || !this.isInitialized) {
+    if (!this.handLandmarker || !this.isInitialized) {
       return null;
     }
 
-    return new Promise((resolve) => {
-      let resolved = false;
-      
-      this.hands.onResults((results: any) => {
-        if (resolved) return;
-        resolved = true;
+    try {
+      const videoTime = videoElement.currentTime;
+      if (videoTime === this.lastVideoTime) return null;
+      this.lastVideoTime = videoTime;
 
-        if (!results.multiHandLandmarks || results.multiHandLandmarks.length === 0) {
-          resolve(null);
-          return;
-        }
+      const result = this.handLandmarker.detectForVideo(videoElement, performance.now());
 
-        const landmarks: { left?: HandLandmark[]; right?: HandLandmark[] } = {};
+      if (!result.landmarks || result.landmarks.length === 0) {
+        return null;
+      }
 
-        results.multiHandLandmarks.forEach((handLandmarks: any[], index: number) => {
-          const handedness = results.multiHandedness?.[index]?.label || 'Right';
-          const isLeft = handedness === 'Left';
+      const landmarks: { left?: HandLandmark[]; right?: HandLandmark[] } = {};
 
-          const convertedLandmarks: HandLandmark[] = handLandmarks.map((lm: any) => ({
-            x: lm.x,
-            y: lm.y,
-            z: lm.z,
-            visibility: lm.visibility ?? 1.0,
-          }));
+      result.landmarks.forEach((handLandmarks: { x: number; y: number; z?: number }[], index: number) => {
+        const handedness = result.handednesses?.[index]?.[0]?.displayName || 'Right';
+        const isLeft = handedness === 'Left';
 
-          if (isLeft) {
-            landmarks.left = convertedLandmarks;
-          } else {
-            landmarks.right = convertedLandmarks;
-          }
-        });
+        const convertedLandmarks: HandLandmark[] = handLandmarks.map((lm) => ({
+          x: lm.x,
+          y: lm.y,
+          z: lm.z ?? 0,
+          visibility: 1.0,
+        }));
 
-        resolve(landmarks);
-      });
-
-      this.hands.send({ image: videoElement }).catch(() => {
-        if (!resolved) {
-          resolved = true;
-          resolve(null);
+        if (isLeft) {
+          landmarks.left = convertedLandmarks;
+        } else {
+          landmarks.right = convertedLandmarks;
         }
       });
 
-      // Timeout fallback
-      setTimeout(() => {
-        if (!resolved) {
-          resolved = true;
-          resolve(null);
-        }
-      }, 500);
-    });
+      return landmarks;
+    } catch {
+      return null;
+    }
   }
 }
 
