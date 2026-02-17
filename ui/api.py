@@ -683,6 +683,18 @@ async def import_user_data(user_id: str, data: Dict[str, Any]):
     return {"status": "imported"}
 
 
+@app.get("/{path:path}")
+async def serve_spa(path: str):
+    """Serve index.html for SPA routes (React Router handles /conversationaldemo, etc.)."""
+    index_path = ui_dir / "index.html"
+    if index_path.exists():
+        response = FileResponse(str(index_path))
+        response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        response.headers["Pragma"] = "no-cache"
+        return response
+    return {"message": "SonZo AI UI API", "version": "1.0.0"}
+
+
 # =============================================================================
 # Main
 # =============================================================================
