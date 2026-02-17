@@ -678,9 +678,13 @@ export default function ConversationalDemo() {
             <video
               src={currentVideo}
               controls
-              autoPlay
+              playsInline
               className="w-full rounded-xl bg-black"
               onEnded={() => setCurrentVideo(null)}
+              onError={(e) => {
+                console.warn("Video load/play error:", e);
+                toast.error("Video failed to load. The avatar service may be unavailable.");
+              }}
             >
               Your browser does not support video playback.
             </video>
