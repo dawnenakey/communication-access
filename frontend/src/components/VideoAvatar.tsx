@@ -92,12 +92,46 @@ const VideoAvatar: React.FC<VideoAvatarProps> = ({
     }
   }, []);
 
+  // Try GenASL full-sentence first (maximize GenASL everywhere - Bedrock gloss + ASLLVD)
+  const fetchGenASLSentence = useCallback(async (sentence: string): Promise<VideoData[] | null> => {
+    const api = getAPI();
+    const base = api === '' || api === undefined ? '' : api.replace(/\/$/, '');
+    const url = base ? `${base}/api/genasl/sentence` : '/api/genasl/sentence';
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: sentence }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const url = data.video_url || data.url;
+        if (url) {
+          const fullUrl = url.startsWith('http') ? url : `${window.location.origin}${url.startsWith('/') ? '' : '/'}${url}`;
+          return [{
+            sign: sentence,
+            videoUrl: fullUrl,
+            thumbnailUrl: '',
+            duration: 5000,
+            signer: 'genasl',
+            category: 'sequence',
+            difficulty: 'beginner',
+            available: true,
+          }];
+        }
+      }
+    } catch (e) {
+      console.log('GenASL sentence fallback:', e);
+    }
+    return null;
+  }, []);
+
   // Fetch videos for a sequence of signs
-  // On demo.sonzo.io: try /api/generate-sequence (avatar) first for GenASL-style videos
+  // On demo.sonzo.io: try GenASL sentence first, then generate-sequence (avatar)
   const fetchVideoSequence = useCallback(async (signs: string[]): Promise<VideoData[]> => {
     const api = getAPI();
     if (api === '' || api === undefined) {
-      // On demo.sonzo.io - try avatar generate-sequence first
+      // Try avatar generate-sequence (uses GenASL lookup when configured)
       try {
         const glossSigns = signs.map(s => s.toUpperCase().replace(/\s+/g, '_'));
         const res = await fetch('/api/generate-sequence', {
@@ -204,8 +238,12 @@ const VideoAvatar: React.FC<VideoAvatarProps> = ({
     onVideoStart?.();
 
     try {
-      const signs = parseSentenceToSigns(sentence);
-      const videos = await fetchVideoSequence(signs);
+      // Maximize GenASL: try full-sentence endpoint first (Bedrock gloss + ASLLVD)
+      let videos = await fetchGenASLSentence(sentence);
+      if (!videos) {
+        const signs = parseSentenceToSigns(sentence);
+        videos = await fetchVideoSequence(signs);
+      }
       
       // If no real videos available, use simulated signing with realistic avatar
       if (videos.length === 0 || !videos.some(v => v.available && v.videoUrl)) {
@@ -230,7 +268,7 @@ const VideoAvatar: React.FC<VideoAvatarProps> = ({
     } finally {
       setIsLoading(false);
     }
-  }, [parseSentenceToSigns, fetchVideoSequence, onVideoStart, simulateSigning]);
+  }, [parseSentenceToSigns, fetchGenASLSentence, fetchVideoSequence, onVideoStart, simulateSigning]);
 
   // Play single sign
   const playSingleSign = useCallback(async (sign: string) => {

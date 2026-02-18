@@ -2,6 +2,16 @@
 
 Place individual sign videos here to enable ASL avatar responses **without** Blender/SMPL-X.
 
+## Important: Demo vs Real Signing
+
+The `create_demo_videos.sh` script creates **placeholder videos** only – colored rectangles with text labels. These are for testing the pipeline, not for real ASL output.
+
+**For real signing**, replace the placeholder `.mp4` files with actual videos of someone performing each sign:
+
+- **File naming**: `HELLO.mp4`, `HOW.mp4`, `YOU.mp4`, `THANK_YOU.mp4`, etc. (uppercase, underscores)
+- **Format**: MP4, 640×480 or similar, ~1–2 seconds per sign
+- **Sources**: Record your own, or use licensed ASL video datasets (e.g. ASLLVD)
+
 ## File naming
 
 - `HELLO.mp4` – sign for "HELLO"
@@ -15,13 +25,11 @@ Use uppercase sign names (e.g. `THANK_YOU.mp4`, `NICE_TO_MEET_YOU.mp4`).
 
 HELLO, GOODBYE, NICE_TO_MEET_YOU, THANK_YOU, PLEASE, SORRY, YES, NO, WHAT, WHERE, WHO, WHY, HOW, WHEN, I_LOVE_YOU, HAPPY, SAD, UNDERSTAND, HELP, WANT, NEED, LIKE, KNOW, LEARN, FINISH, ME, YOU, MY, YOUR, WE, GOOD, BAD, MORE, AGAIN, EAT, DRINK, SLEEP, WORK, WAIT, STOP, GO, COME, NAME
 
-## Quick test video (optional)
-
-Create a minimal placeholder with ffmpeg:
+## Quick test video (placeholder only)
 
 ```bash
-# 2-second placeholder (black with "HELLO" text)
-ffmpeg -f lavfi -i color=c=black:s=640x480:d=2 -vf "drawtext=text=HELLO:fontsize=48:x=(w-text_w)/2:y=(h-text_h)/2:fontcolor=white" -t 2 avatar/video_library/HELLO.mp4
+# Creates placeholder (text on colored background) – NOT real signing
+bash avatar/video_library/create_demo_videos.sh
 ```
 
-Repeat for HOW.mp4, YOU.mp4, etc. to test the sequence.
+To get real signing: replace the generated files with real ASL videos.

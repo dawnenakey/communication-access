@@ -505,6 +505,96 @@ async def download_video(avatar_id: str, phrase: str):
 
 
 # =============================================================================
+# GenASL Endpoints (maximize use - no port 8000 needed)
+# =============================================================================
+
+@app.get("/api/genasl/health")
+async def genasl_health():
+    """Check if GenASL is configured and available."""
+    genasl = _get_genasl_lookup()
+    if genasl is None:
+        return {"enabled": False, "configured": False, "message": "Set GENASL_SIGNS_TABLE and GENASL_VIDEOS_BUCKET"}
+    try:
+        signs = await genasl.get_available_signs()
+        return {
+            "enabled": True,
+            "configured": True,
+            "signs_count": signs.get("count", 0),
+            "source": signs.get("source", "ASLLVD"),
+        }
+    except Exception as e:
+        return {"enabled": False, "configured": True, "error": str(e)}
+
+
+@app.get("/api/genasl/signs")
+async def genasl_signs():
+    """List available signs from GenASL (DynamoDB/ASLLVD)."""
+    genasl = _get_genasl_lookup()
+    if genasl is None:
+        raise HTTPException(status_code=503, detail="GenASL not configured")
+    try:
+        return await genasl.get_available_signs()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class GenASLSentenceRequest(BaseModel):
+    """Request for full-sentence GenASL video."""
+    text: str = Field(..., description="English text to translate and sign")
+
+
+@app.post("/api/genasl/sentence")
+async def genasl_sentence(request: GenASLSentenceRequest):
+    """
+    Generate full-sentence ASL video from English text.
+    Uses GenASL Step Functions when GENASL_STATE_MACHINE_ARN is set.
+    Falls back to generate-sequence (lookup + concat) otherwise.
+    """
+    genasl = _get_genasl_lookup()
+    text = request.text.strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="Text is required")
+
+    # Try full pipeline (Step Functions) if configured
+    if genasl and os.environ.get("GENASL_STATE_MACHINE_ARN"):
+        try:
+            result = await genasl.generate_sentence_video(
+                english_text=text,
+                execution_wait=True,
+                max_wait_seconds=60,
+            )
+            if result.status.value == "SUCCEEDED" and result.video_url:
+                return {
+                    "video_url": result.video_url,
+                    "gloss_sequence": result.gloss_sequence,
+                    "source": "genasl_pipeline",
+                }
+        except Exception as e:
+            print(f"GenASL pipeline fallback: {e}")
+
+    # Fallback: translate to gloss, then generate-sequence
+    if genasl:
+        try:
+            gloss_list = await genasl.translate_to_gloss(text)
+            if gloss_list:
+                signs = [g.strip().upper().replace(" ", "_") for g in gloss_list if g.strip()]
+                if signs:
+                    req = GenerateSequenceRequest(signs=signs)
+                    return await generate_sign_sequence(req)
+        except Exception as e:
+            print(f"GenASL gloss fallback: {e}")
+
+    # Last resort: simple word split
+    words = text.lower().replace(".", "").replace(",", "").split()
+    skip = {"a", "an", "the", "is", "are", "am", "was", "were"}
+    signs = [w.upper().replace(" ", "_") for w in words if w not in skip]
+    if not signs:
+        signs = ["HELLO"]
+    req = GenerateSequenceRequest(signs=signs)
+    return await generate_sign_sequence(req)
+
+
+# =============================================================================
 # Real-Time Sign Generation (SMPL-X)
 # =============================================================================
 
@@ -670,6 +760,24 @@ async def generate_sign_realtime(request: GenerateSignRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+def _get_genasl_lookup():
+    """Lazy-load GenASL lookup (optional - requires boto3 + AWS env vars)."""
+    if not os.environ.get("GENASL_SIGNS_TABLE") or not os.environ.get("GENASL_VIDEOS_BUCKET"):
+        return None
+    try:
+        import sys
+        backend_dir = Path(__file__).parent.parent / "backend"
+        if backend_dir.exists() and str(backend_dir) not in sys.path:
+            sys.path.insert(0, str(backend_dir))
+        from genasl_service import GenASLService
+        svc = GenASLService()
+        if svc.is_available():
+            return svc
+    except Exception as e:
+        print(f"GenASL lookup not available: {e}")
+    return None
+
+
 def _concatenate_videos_ffmpeg(video_paths: List[Path], output_path: Path) -> Optional[str]:
     """Concatenate videos using ffmpeg. Returns output path or None."""
     if not video_paths:
@@ -732,23 +840,39 @@ async def generate_sign_sequence(request: GenerateSequenceRequest):
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
 
-    # Fallback: pre-recorded videos from VIDEO_LIBRARY
+    # Try GenASL (S3/DynamoDB) first when configured - no port 8000 needed, runs 24/7 on AWS
     video_lib = Path(Config.VIDEO_LIBRARY)
-    FALLBACK_SIGN = "HELLO"  # Use for unknown signs so we always return a video
-    video_paths = []
+    video_paths: List[Path] = []
+    genasl = _get_genasl_lookup()
     for sign in signs:
-        p = video_lib / f"{sign}.mp4"
-        if p.exists():
-            video_paths.append(p)
-        else:
-            p_alt = video_lib / f"{sign.lower()}.mp4"
-            if p_alt.exists():
-                video_paths.append(p_alt)
+        found = False
+        if genasl:
+            try:
+                info = await genasl.lookup_sign_video(sign)
+                if info and info.get("video_url"):
+                    import urllib.request
+                    genasl_cache = Config.DATA_DIR / "generated" / "genasl_cache"
+                    genasl_cache.mkdir(parents=True, exist_ok=True)
+                    cache_path = genasl_cache / f"{sign}.mp4"
+                    if not cache_path.exists():
+                        urllib.request.urlretrieve(info["video_url"], str(cache_path))
+                    video_paths.append(cache_path)
+                    found = True
+            except Exception:
+                pass
+        if not found:
+            p = video_lib / f"{sign}.mp4"
+            if p.exists():
+                video_paths.append(p)
             else:
-                # Unknown sign: use fallback so we don't 503
-                fallback = video_lib / f"{FALLBACK_SIGN}.mp4"
-                if fallback.exists():
-                    video_paths.append(fallback)
+                p_alt = video_lib / f"{sign.lower()}.mp4"
+                if p_alt.exists():
+                    video_paths.append(p_alt)
+                else:
+                    fallback = video_lib / "HELLO.mp4"
+                    if fallback.exists():
+                        video_paths.append(fallback)
+
     if not video_paths:
         raise HTTPException(
             status_code=503,

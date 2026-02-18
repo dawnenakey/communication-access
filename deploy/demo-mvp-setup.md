@@ -139,6 +139,8 @@ sudo systemctl status sonzo-demo
 | **503 on /api/generate-sequence** | Create demo videos: `cd /home/ubuntu/communication-access && bash avatar/video_library/create_demo_videos.sh` (requires ffmpeg). Includes OAK, CAMERA, etc. for typed responses. |
 | Black avatar video | Same as above – avatar needs videos in `avatar/video_library/` |
 | **Real sign recognition** | Ensure `models/best_landmark_model.pt` exists. Launcher auto-uses it. Install mediapipe: `pip install mediapipe` |
+| **GenASL (maximize use, no port 8000)** | Set env: `GENASL_SIGNS_TABLE`, `GENASL_VIDEOS_BUCKET`. Optional: `GENASL_STATE_MACHINE_ARN` for full-sentence pipeline. Avatar on 8080 serves /api/genasl. Install: `pip install boto3` |
+| **Your own ASL videos** | Run `python avatar/video_library/map_to_gloss.py --input /path/to/videos --output avatar/video_library` to rename/copy to gloss format |
 
 ---
 
