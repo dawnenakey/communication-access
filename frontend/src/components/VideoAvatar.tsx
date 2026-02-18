@@ -326,8 +326,10 @@ const VideoAvatar: React.FC<VideoAvatarProps> = ({
   // Effect: Auto-play when video URL changes
   useEffect(() => {
     if (currentVideoUrl && videoRef.current) {
-      videoRef.current.load();
-      videoRef.current.play()
+      const video = videoRef.current;
+      video.muted = true; // Required for autoplay policy
+      video.load();
+      video.play()
         .then(() => setIsPlaying(true))
         .catch(err => {
           console.error('Video play error:', err);
