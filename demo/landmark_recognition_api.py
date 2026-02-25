@@ -194,7 +194,8 @@ class RecognitionResult(BaseModel):
     landmarks: Optional[Dict[str, List[LandmarkPoint]]] = None
     latency_ms: float = 0.0
     message: str = ""
-    english_translation: Optional[str] = None  # ASL-to-English via Bedrock
+    english_translation: Optional[str] = None
+    translated_sentence: Optional[str] = None  # ASL-to-English via Bedrock
 
 
 class GlossaryResponse(BaseModel):
@@ -248,6 +249,23 @@ class LandmarkModel:
         self.prev_landmarks = None
         self.motion_history = deque(maxlen=10)
         self.hand_detected_history = deque(maxlen=10)
+
+        # --- Conversational Gloss Buffer ---
+        self.gloss_buffer = []
+        self.last_commit_time = time.time()
+        self.pause_threshold = 1.5  # seconds of silence before translation
+
+
+        # ---- Stability Gating (Product Mode) ----
+        self.pred_history = deque(maxlen=12)
+        self.last_committed = None
+        self.commit_cooldown_s = 1.0
+        self.last_commit_time = 0.0
+
+        self.MIN_CONFIDENCE = 0.80
+        self.STABLE_RATIO = 0.70
+        self.MIN_STABLE_COUNT = 7
+
 
         # Load model
         if os.path.exists(model_path):
@@ -459,11 +477,40 @@ class LandmarkModel:
             best_sign = top_predictions[0]["sign"]
             best_conf = top_predictions[0]["confidence"]
 
-            # Apply minimum confidence threshold
-            if best_conf < self.MIN_CONFIDENCE:
-                return None, best_conf, top_predictions, "low_confidence"
+            
+            # ---- Stability Gating ----
+            top1 = top_predictions[0]
+            self.pred_history.append(top1)
 
-        return best_sign, best_conf, top_predictions, "signing"
+            from collections import Counter
+            labels = [p["sign"] for p in self.pred_history]
+            counts = Counter(labels)
+            best_label, best_count = counts.most_common(1)[0]
+            stable_ratio = best_count / max(1, len(labels))
+
+            import time
+            now = time.time()
+            cooldown_ok = (now - self.last_commit_time) > self.commit_cooldown_s
+
+            if (
+                stable_ratio >= self.STABLE_RATIO and
+                best_count >= self.MIN_STABLE_COUNT and
+                cooldown_ok
+            ):
+                stable_confs = [
+                    p["confidence"]
+                    for p in self.pred_history
+                    if p["sign"] == best_label
+                ]
+                stable_conf = max(stable_confs) if stable_confs else best_conf
+
+                if stable_conf >= self.MIN_CONFIDENCE and best_label != self.last_committed:
+                    self.last_committed = best_label
+                    self.last_commit_time = now
+                    return best_label, stable_conf, top_predictions, "signing"
+
+            return None, best_conf, top_predictions, "collecting"
+
 
     def clear_buffer(self):
         """Clear frame buffer."""
