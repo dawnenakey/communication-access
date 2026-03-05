@@ -43,7 +43,7 @@ except ImportError:
     print("Warning: boto3 not available - LLM translation disabled")
 
 # GenASL Service for realistic avatar videos
-from genasl_service import GenASLService, get_genasl_service, GenASLStatus, GenASLVideoResult
+from backend.genasl_service import GenASLService, get_genasl_service, GenASLStatus, GenASLVideoResult
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -2225,3 +2225,30 @@ app.add_middleware(
 @app.on_event("shutdown")
 async def shutdown_db_client():
     client.close()
+
+
+from pydantic import BaseModel
+
+class SentenceRequest(BaseModel):
+    text: str
+
+
+
+
+
+
+from pydantic import BaseModel
+
+class SentenceRequest(BaseModel):
+    text: str
+
+
+@app.post("/api/genasl/sentence")
+async def api_genasl_sentence(req: SentenceRequest):
+    genasl = get_genasl_service()
+    video_result = await genasl.generate_sentence_video(req.text)
+
+    return {
+        "video_url": video_result.video_url
+    }
+

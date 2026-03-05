@@ -163,6 +163,7 @@ def get_realtime_generator():
         try:
             from realtime_avatar_generator import RealtimeAvatarGenerator
             realtime_generator = RealtimeAvatarGenerator(
+                blender_path=os.environ.get("BLENDER_PATH", "/snap/bin/blender"),
                 output_dir=str(Config.DATA_DIR / "generated")
             )
             print("✅ Real-time avatar generator loaded")
@@ -743,8 +744,13 @@ async def generate_sign_realtime(request: GenerateSignRequest):
         print(f"Generated {sign_name} in {processing_time:.1f}s")
 
         # Create URL path
-        relative_path = Path(video_path).relative_to(Config.DATA_DIR)
-        video_url = f"/static/{relative_path}"
+        vp = Path(video_path)
+        try:
+            relative_path = vp.relative_to(Config.DATA_DIR)
+            video_url = f"/static/{relative_path}"
+        except ValueError:
+            # video is in video_library, not DATA_DIR - serve directly
+            video_url = f"/static/video_library/{vp.name}"
 
         return GenerateSignResponse(
             sign=sign_name,
@@ -819,12 +825,19 @@ async def generate_sign_sequence(request: GenerateSequenceRequest):
     if generator is not None:
         # Real-time generation (Blender + SMPL-X)
         available = set(generator.get_available_signs())
+        # Also include video library files as available signs
+        from pathlib import Path as _Path
+        vid_lib = _Path("/home/ubuntu/communication-access/avatar/video_library")
+        for f in vid_lib.glob("*.mp4"):
+            if f.stat().st_size > 50000:
+                available.add(f.stem.upper())
         invalid_signs = [s for s in signs if s not in available]
         if invalid_signs:
-            raise HTTPException(
-                status_code=400,
-                detail={"message": f"Some signs not available: {invalid_signs}", "available_signs": list(available)}
-            )
+            print(f"Skipping unavailable signs: {invalid_signs}")
+            signs = [s for s in signs if s in available]
+        if not signs:
+            # Return HELLO as graceful fallback rather than 400
+            signs = ["HELLO"]
         from realtime_avatar_generator import RenderQuality
         quality_enum = RenderQuality(quality.lower()) if quality else RenderQuality.STANDARD
         try:
@@ -833,8 +846,13 @@ async def generate_sign_sequence(request: GenerateSequenceRequest):
                 lambda: generator.generate_sign_sequence(signs, quality_enum)
             )
             if video_path:
-                relative_path = Path(video_path).relative_to(Config.DATA_DIR)
-                return {"signs": signs, "video_url": f"/static/{relative_path}", "quality": quality}
+                vp = Path(video_path)
+                try:
+                    relative_path = vp.relative_to(Config.DATA_DIR)
+                    video_url = f"/static/{relative_path}"
+                except ValueError:
+                    video_url = f"/static/video_library/{vp.name}"
+                return {"signs": signs, "video_url": video_url, "quality": quality}
         except HTTPException:
             raise
         except Exception as e:
@@ -888,8 +906,13 @@ async def generate_sign_sequence(request: GenerateSequenceRequest):
     result_path = _concatenate_videos_ffmpeg(video_paths, output_path)
     if not result_path:
         raise HTTPException(status_code=500, detail="Failed to concatenate videos (ffmpeg required)")
-    relative_path = Path(result_path).relative_to(Config.DATA_DIR)
-    return {"signs": signs, "video_url": f"/static/{relative_path}", "quality": quality, "source": "video_library"}
+    vp = Path(result_path)
+    try:
+        relative_path = vp.relative_to(Config.DATA_DIR)
+        video_url = f"/static/{relative_path}"
+    except ValueError:
+        video_url = f"/static/video_library/{vp.name}"
+    return {"signs": signs, "video_url": video_url, "quality": quality, "source": "video_library"}
 
 
 # =============================================================================

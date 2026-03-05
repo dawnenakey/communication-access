@@ -128,8 +128,19 @@ const AppLayout: React.FC = () => {
   const [isOAKConnected, setIsOAKConnected] = useState(true);
   const [cameraType, setCameraType] = useState<CameraType>('webcam');
   const [messages, setMessages] = useState<Message[]>([]);
+  const [assistantToSign, setAssistantToSign] = useState<string | null>(null);
   const [isAvatarResponding, setIsAvatarResponding] = useState(false);
   const [currentAvatarSentence, setCurrentAvatarSentence] = useState('');
+
+  useEffect(() => {
+    const handler = (e: any) => {
+      setCurrentAvatarSentence(e.detail);
+      setIsAvatarResponding(true);
+    };
+
+    window.addEventListener("avatarSpeak", handler);
+    return () => window.removeEventListener("avatarSpeak", handler);
+  }, []);
   const [recognizedSign, setRecognizedSign] = useState<string | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
@@ -532,7 +543,7 @@ const AppLayout: React.FC = () => {
               {/* Video Avatar (GenASL-style) */}
               <div>
                 <VideoAvatar
-                  currentSentence={currentAvatarSentence}
+                  sentence={assistantToSign} currentSentence={currentAvatarSentence}
                   isResponding={isAvatarResponding}
                   language={currentLanguage}
                   onResponseComplete={handleAvatarResponseComplete}

@@ -164,16 +164,52 @@ const VideoAvatar: React.FC<VideoAvatarProps> = ({
     setError(null);
     onVideoStart?.();
 
-    try {
-      const signs = parseSentenceToSigns(sentence);
-      const videos = await fetchVideoSequence(signs);
-      
-      // If no real videos available, use simulated signing with realistic avatar
-      if (videos.length === 0 || !videos.some(v => v.available && v.videoUrl)) {
-        setIsLoading(false);
-        simulateSigning(sentence);
-        return;
-      }
+    const playVideoSequence = useCallback(async (sentence: string) => {
+  setIsLoading(true);
+  setError(null);
+  onVideoStart?.();
+
+  try {
+    const signs = parseSentenceToSigns(sentence);
+
+    const res = await fetch("/api/generate-sequence", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ signs })
+    });
+
+    if (!res.ok) throw new Error("Failed to generate sequence");
+
+    const data = await res.json();
+
+    if (data.video_url) {
+      setVideoQueue([
+        {
+          sign: sentence,
+          videoUrl: data.video_url,
+          thumbnailUrl: "",
+          duration: 0,
+          signer: selectedSigner,
+          category: "generated",
+          difficulty: "dynamic",
+          available: true
+        }
+      ]);
+
+      setCurrentVideoIndex(0);
+      setCurrentVideoUrl(data.video_url);
+      setCurrentSignName(sentence.toUpperCase());
+    } else {
+      simulateSigning(sentence);
+    }
+  } catch (err) {
+    console.error(err);
+    setError("Avatar generation failed");
+    simulateSigning(sentence);
+  } finally {
+    setIsLoading(false);
+  }
+}, [parseSentenceToSigns, selectedSigner, onVideoStart, simulateSigning]);
 
       setVideoQueue(videos);
       setCurrentVideoIndex(0);

@@ -53,10 +53,10 @@ class SignAnimation:
     fps: int = 24
 
     # Body keyframes: frame -> {joint_idx: [rx, ry, rz]}
-    body_keyframes: List[Dict]
+    body_keyframes: List[Dict] = None
 
     # Hand keyframes: frame -> handshape_name or pose array
-    right_hand_keyframes: List[Dict]
+    right_hand_keyframes: List[Dict] = None
     left_hand_keyframes: Optional[List[Dict]] = None
 
     # Movement parameters
@@ -1310,6 +1310,16 @@ class RealtimeAvatarGenerator:
             if Path(cached_path).exists():
                 return cached_path
 
+        # Check video library for pre-recorded human signer videos FIRST
+        video_lib = Path("/home/ubuntu/communication-access/avatar/video_library")
+        lib_path = video_lib / f"{sign_name}.mp4"
+        if lib_path.exists() and lib_path.stat().st_size > 50000:
+            import subprocess as sp
+            chk = sp.run(["file", str(lib_path)], capture_output=True, text=True)
+            if "ISO Media" in chk.stdout or "MPEG" in chk.stdout:
+                print(f"Using video library for {sign_name}")
+                self.video_cache[cache_key] = str(lib_path)
+                return str(lib_path)
         # Check if sign exists
         if sign_name not in ASL_SIGN_ANIMATIONS:
             print(f"Unknown sign: {sign_name}")
@@ -1442,12 +1452,9 @@ scene.render.fps = {sign.fps}
 # Render settings
 scene.render.engine = '{settings["engine"]}'
 scene.render.resolution_x = 720
-scene.render.resolution_y = 1280
-scene.render.filepath = "{str(output_path)}"
-scene.render.image_settings.file_format = 'FFMPEG'
-scene.render.ffmpeg.format = 'MPEG4'
-scene.render.ffmpeg.codec = 'H264'
-scene.render.ffmpeg.constant_rate_factor = 'HIGH'
+scene.render.filepath = r"{str(output_path)}_frames/frame_"
+import os; os.makedirs(r"{str(output_path)}_frames", exist_ok=True)
+scene.render.image_settings.file_format = 'PNG'
 
 if '{settings["engine"]}' == 'CYCLES':
     scene.cycles.samples = {settings["samples"]}
@@ -1497,10 +1504,26 @@ avatar.data.materials.append(mat)
 # Animate (placeholder - add keyframes based on sign data)
 # In production, this would animate SMPL-X joints
 
-# Render
-print(f"Rendering to: {str(output_path)}")
+# Render frames
+print(f"Rendering frames to: {str(output_path)}_frames")
 bpy.ops.render.render(animation=True)
-print("Render complete!")
+print("Frames rendered!")
+# Stitch with ffmpeg
+import subprocess
+frames_dir = "{str(output_path)}_frames"
+cmd = [
+    "ffmpeg", "-y",
+    "-framerate", str({sign.fps}),
+    "-i", frames_dir + "/frame_%04d.png",
+    "-c:v", "libx264",
+    "-pix_fmt", "yuv420p",
+    "{str(output_path)}"
+]
+result = subprocess.run(cmd, capture_output=True, text=True)
+if result.returncode == 0:
+    print("Video created: {str(output_path)}")
+else:
+    print("FFmpeg error:", result.stderr)
 '''
         return script
 

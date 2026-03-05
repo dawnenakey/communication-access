@@ -10,9 +10,19 @@ import {
 
 // API endpoint - use same origin on demo.sonzo.io, else api.sonzo.io
 const getAPI = () => {
-  if (import.meta.env?.VITE_API_URL) return import.meta.env.VITE_API_URL;
-  if (typeof window !== "undefined" && window.location.hostname === "demo.sonzo.io") return "";
-  return "https://api.sonzo.io";
+  if (typeof window !== 'undefined' && (window as any).__env?.API_BASE_URL) {
+    return (window as any).__env.API_BASE_URL;
+  }
+
+  if (import.meta.env?.VITE_API_URL) {
+    return import.meta.env.VITE_API_URL;
+  }
+
+  if (typeof window !== 'undefined' && window.location.hostname === 'demo.sonzo.io') {
+    return '';
+  }
+
+  return 'https://api.sonzo.io';
 };
 const API = getAPI();
 
@@ -90,7 +100,7 @@ export default function ConversationalDemo() {
 
   const loadAvailableSigns = async () => {
     try {
-      const response = await fetch(`${API}/api/genasl/signs`);
+      const response = await fetch(`${API}/genasl/signs`);
       const data = await response.json();
       if (data?.signs) {
         setAvailableSigns(data.signs);
@@ -103,7 +113,7 @@ export default function ConversationalDemo() {
 
   const checkGenASLHealth = async () => {
     try {
-      const response = await fetch(`${API}/api/genasl/health`);
+      const response = await fetch(`${API}/genasl/health`);
       const data = await response.json();
       setGenaslEnabled(data?.enabled && data?.configured);
     } catch (error) {
@@ -247,8 +257,8 @@ export default function ConversationalDemo() {
 
       // Use GenASL endpoint for realistic avatar videos (3,300+ signs)
       const endpoint = useGenASL && genaslEnabled
-        ? `${API}/api/conversation/genasl`
-        : `${API}/api/conversation`;
+        ? `${API}/conversation/genasl`
+        : `${API}/conversation`;
 
       let data: Record<string, any>;
       try {
@@ -278,7 +288,7 @@ export default function ConversationalDemo() {
       let videoUrl = systemResponse.video_url;
       if (!videoUrl && systemResponse.asl_gloss?.length > 0) {
         try {
-          const seqRes = await fetch(`${API}/api/generate-sequence`, {
+          const seqRes = await fetch(`${API}/generate-sequence`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ signs: systemResponse.asl_gloss }),
@@ -311,6 +321,20 @@ export default function ConversationalDemo() {
       };
 
       setMessages(prev => [...prev, newUserMessage, newSystemMessage]);
+
+      if (newSystemMessage.video_url) {
+        window.dispatchEvent(
+          new CustomEvent("avatarVideo", {
+            detail: newSystemMessage.video_url
+          })
+        );
+      }
+
+      window.dispatchEvent(
+        new CustomEvent("avatarSpeak", {
+          detail: newSystemMessage.content
+        })
+      );
 
       const videoIndicator = newSystemMessage.video_url ? " (video ready)" : "";
       toast.success(`Response: ${newSystemMessage.asl_gloss?.slice(0, 5).join(" ")}${(newSystemMessage.asl_gloss?.length || 0) > 5 ? '...' : ''}${videoIndicator}`);
@@ -677,7 +701,8 @@ export default function ConversationalDemo() {
             </div>
             <video
               src={currentVideo}
-              controls
+              autoPlay
+              muted
               playsInline
               className="w-full rounded-xl bg-black"
               onEnded={() => setCurrentVideo(null)}

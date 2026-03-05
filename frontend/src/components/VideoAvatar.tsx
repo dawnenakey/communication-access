@@ -9,8 +9,18 @@ import { supabase } from '@/lib/supabase';
 
 // API base - use same origin on demo.sonzo.io for GenASL/avatar, else external
 const getAPI = () => {
-  if (import.meta.env?.VITE_API_URL) return import.meta.env.VITE_API_URL;
-  if (typeof window !== 'undefined' && window.location.hostname === 'demo.sonzo.io') return '';
+  if (typeof window !== 'undefined' && (window as any).__env?.API_BASE_URL) {
+    return (window as any).__env.API_BASE_URL;
+  }
+
+  if (import.meta.env?.VITE_API_URL) {
+    return import.meta.env.VITE_API_URL;
+  }
+
+  if (typeof window !== 'undefined' && window.location.hostname === 'demo.sonzo.io') {
+    return '';
+  }
+
   return 'https://api.sonzo.io';
 };
 
@@ -74,6 +84,19 @@ const VideoAvatar: React.FC<VideoAvatarProps> = ({
   const [animationFrame, setAnimationFrame] = useState(0);
   
   const videoRef = useRef<HTMLVideoElement>(null);
+
+  // Listen for external avatar video events
+  useEffect(() => {
+    const handler = (e: any) => {
+      if (e.detail) {
+        setCurrentVideoUrl(e.detail);
+      }
+    };
+
+    window.addEventListener("avatarVideo", handler);
+    return () => window.removeEventListener("avatarVideo", handler);
+  }, []);
+
   const containerRef = useRef<HTMLDivElement>(null);
   const animationRef = useRef<number | null>(null);
 
@@ -95,7 +118,7 @@ const VideoAvatar: React.FC<VideoAvatarProps> = ({
   // Try GenASL full-sentence first (maximize GenASL everywhere - Bedrock gloss + ASLLVD)
   const fetchGenASLSentence = useCallback(async (sentence: string): Promise<VideoData[] | null> => {
     const api = getAPI();
-    const base = api === '' || api === undefined ? '' : api.replace(/\/$/, '');
+    const base = "";
     const url = base ? `${base}/api/genasl/sentence` : '/api/genasl/sentence';
     try {
       const res = await fetch(url, {
@@ -107,7 +130,10 @@ const VideoAvatar: React.FC<VideoAvatarProps> = ({
         const data = await res.json();
         const url = data.video_url || data.url;
         if (url) {
-          const fullUrl = url.startsWith('http') ? url : `${window.location.origin}${url.startsWith('/') ? '' : '/'}${url}`;
+          const fullUrl = url.startsWith('http')
+  ? url
+  : window.location.origin + url;
+
           return [{
             sign: sentence,
             videoUrl: fullUrl,
@@ -143,7 +169,11 @@ const VideoAvatar: React.FC<VideoAvatarProps> = ({
           const data = await res.json();
           const url = data.video_url || data.url;
           if (url) {
-            const fullUrl = url.startsWith('http') ? url : `${window.location.origin}${url.startsWith('/') ? '' : '/'}${url}`;
+            
+const fullUrl = url.startsWith('http')
+  ? url
+  : window.location.origin + url;
+
             return [{
               sign: signs.join(' '),
               videoUrl: fullUrl,
@@ -256,8 +286,8 @@ const VideoAvatar: React.FC<VideoAvatarProps> = ({
       setCurrentVideoIndex(0);
       
       const firstVideo = videos[0];
-      if (firstVideo.available && firstVideo.videoUrl) {
-        setCurrentVideoUrl(firstVideo.videoUrl);
+      if (firstVideo.available && (firstVideo.video_url || firstVideo.videoUrl)) {
+        setCurrentVideoUrl(firstVideo.video_url || firstVideo.videoUrl);
         setCurrentSignName(firstVideo.sign);
       } else {
         simulateSigning(sentence);
@@ -278,8 +308,8 @@ const VideoAvatar: React.FC<VideoAvatarProps> = ({
     try {
       const video = await fetchSignVideo(sign);
       
-      if (video?.available && video.videoUrl) {
-        setCurrentVideoUrl(video.videoUrl);
+      if (video?.available && (video.video_url || video.videoUrl)) {
+        setCurrentVideoUrl(video.video_url || video.videoUrl);
         setCurrentSignName(video.sign);
         setVideoQueue([video]);
         setCurrentVideoIndex(0);
@@ -322,8 +352,8 @@ const VideoAvatar: React.FC<VideoAvatarProps> = ({
       setCurrentVideoIndex(nextIndex);
       const nextVideo = videoQueue[nextIndex];
       
-      if (nextVideo.available && nextVideo.videoUrl) {
-        setCurrentVideoUrl(nextVideo.videoUrl);
+      if (nextVideo.available && (nextVideo.video_url || nextVideo.videoUrl)) {
+        setCurrentVideoUrl(nextVideo.video_url || nextVideo.videoUrl);
         setCurrentSignName(nextVideo.sign);
       } else {
         handleVideoEnded();
@@ -410,8 +440,8 @@ const VideoAvatar: React.FC<VideoAvatarProps> = ({
     if (newIndex !== currentVideoIndex) {
       setCurrentVideoIndex(newIndex);
       const video = videoQueue[newIndex];
-      if (video.available && video.videoUrl) {
-        setCurrentVideoUrl(video.videoUrl);
+      if (video.available && video.video_url || video.videoUrl) {
+        setCurrentVideoUrl(video.video_url || video.videoUrl);
         setCurrentSignName(video.sign);
       }
     }
