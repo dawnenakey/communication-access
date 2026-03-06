@@ -26,8 +26,8 @@ const getAPI = () => {
 
 // Realistic human signer images
 const SIGNER_AVATARS = {
-  female: 'https://d64gsuwffb70l.cloudfront.net/69757acc7df661eddaca039f_1769662049269_f23c9fd3.jpg',
-  male: 'https://d64gsuwffb70l.cloudfront.net/69757acc7df661eddaca039f_1769662070071_b9b6621d.png'
+  female: '/static/generated/signer_idle.jpg',
+  male: '/static/generated/signer_idle.jpg'
 };
 
 interface VideoData {
