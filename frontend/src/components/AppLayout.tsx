@@ -5,7 +5,7 @@ import { supabase } from '@/lib/supabase';
 import Header from './Header';
 import HeroSection from './HeroSection';
 import CameraFeed, { CameraType, FullBodyPose } from './CameraFeed';
-import VideoAvatar from './VideoAvatar';
+import ReadyPlayerMeAvatar from './ReadyPlayerMeAvatar';
 import ConversationPanel from './ConversationPanel';
 import FeatureCards from './FeatureCards';
 import FAQSection from './FAQSection';
@@ -542,15 +542,12 @@ const AppLayout: React.FC = () => {
 
               {/* Video Avatar (GenASL-style) */}
               <div>
-                <VideoAvatar
-                  sentence={assistantToSign} currentSentence={currentAvatarSentence}
+                <ReadyPlayerMeAvatar
+                  currentSentence={currentAvatarSentence}
                   isResponding={isAvatarResponding}
                   language={currentLanguage}
                   onResponseComplete={handleAvatarResponseComplete}
                   recognizedSign={recognizedSign}
-                  showSubtitles={settings.avatar.showSubtitles}
-                  onOpenMarketplace={() => setIsMarketplaceOpen(true)}
-                  onOpenLearning={() => setIsLearningModeOpen(true)}
                 />
               </div>
 

@@ -807,7 +807,9 @@ def _concatenate_videos_ffmpeg(video_paths: List[Path], output_path: Path) -> Op
             for p in video_paths:
                 f.write(f"file '{p.absolute()}'\n")
         result = subprocess.run(
-            ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", str(list_path), "-c", "copy", str(output_path)],
+["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", str(list_path),
+                "-vf", "scale=640:480:force_original_aspect_ratio=decrease,pad=640:480:(ow-iw)/2:(oh-ih)/2,fps=25",
+                "-an", "-vcodec", "libx264", "-crf", "23", "-preset", "fast", str(output_path)],
             capture_output=True, text=True, timeout=120
         )
         if result.returncode == 0 and output_path.exists():
