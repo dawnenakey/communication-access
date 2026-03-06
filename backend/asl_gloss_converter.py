@@ -14,7 +14,7 @@ WORD_MAP = {
     "on": None, "at": None, "by": None, "from": None, "as": None,
 
     # Pronouns
-    "i": "ME", "me": "ME", "my": "MY", "mine": "MY",
+    "i": "ME", "i/me": "ME", "me": "ME", "my": "MY", "mine": "MY",
     "you": "YOU", "your": "YOUR", "yours": "YOUR",
     "we": "WE", "our": "WE", "us": "WE",
     "they": None, "them": None, "their": None,

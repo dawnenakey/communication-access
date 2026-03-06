@@ -401,10 +401,8 @@ const fullUrl = url.startsWith('http')
         .then(() => setIsPlaying(true))
         .catch(err => {
           console.error('Video play error:', err);
-          // Fallback to simulation
-          if (currentSentence) {
-            simulateSigning(currentSentence);
-          }
+          // Don't simulate - just show paused video, user can tap to play
+          setIsPlaying(false);
         });
     }
   }, [currentVideoUrl, currentSentence, simulateSigning]);
@@ -574,9 +572,8 @@ const fullUrl = url.startsWith('http')
                 networkState: videoEl.networkState,
                 readyState: videoEl.readyState
               });
-              setError(`Video failed to load: ${errorMessage}`);
+              console.error('Video failed, clearing URL');
               setCurrentVideoUrl(null);
-              if (currentSentence) simulateSigning(currentSentence);
             }}
           >
             <source src={currentVideoUrl} type="video/mp4" />
@@ -586,16 +583,11 @@ const fullUrl = url.startsWith('http')
         {/* Realistic Human Avatar (when no video) */}
         {!currentVideoUrl && (
           <div className="relative w-full h-full">
-            {/* Human Signer Image */}
+            {/* Show idle signer video or fallback image */}
             <img 
               src={SIGNER_AVATARS[selectedSigner]}
               alt="ASL Signer"
-              className={`w-full h-full object-cover transition-all duration-300 ${
-                isAnimating ? 'scale-[1.02]' : ''
-              }`}
-              style={{
-                filter: isAnimating ? 'brightness(1.05)' : 'brightness(1)',
-              }}
+              className="w-full h-full object-cover"
             />
             
             {/* Signing Animation Overlay */}
