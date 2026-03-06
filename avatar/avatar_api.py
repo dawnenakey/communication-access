@@ -585,10 +585,20 @@ async def genasl_sentence(request: GenASLSentenceRequest):
         except Exception as e:
             print(f"GenASL gloss fallback: {e}")
 
-    # Last resort: simple word split
-    words = text.lower().replace(".", "").replace(",", "").split()
-    skip = {"a", "an", "the", "is", "are", "am", "was", "were"}
-    signs = [w.upper().replace(" ", "_") for w in words if w not in skip]
+    # Use SonZo ASL gloss converter (our own IP - no Bedrock needed)
+    try:
+        import sys
+        backend_dir = Path(__file__).parent.parent / "backend"
+        if str(backend_dir) not in sys.path:
+            sys.path.insert(0, str(backend_dir))
+        from asl_gloss_converter import english_to_asl_gloss
+        signs = english_to_asl_gloss(text)
+        print(f"SonZo gloss: {signs}")
+    except Exception as e:
+        print(f"Gloss converter fallback: {e}")
+        words = text.lower().replace(".", "").replace(",", "").split()
+        skip = {"a", "an", "the", "is", "are", "am", "was", "were"}
+        signs = [w.upper().replace(" ", "_") for w in words if w not in skip]
     if not signs:
         signs = ["HELLO"]
     req = GenerateSequenceRequest(signs=signs)
@@ -829,7 +839,7 @@ async def generate_sign_sequence(request: GenerateSequenceRequest):
         from pathlib import Path as _Path
         vid_lib = _Path("/home/ubuntu/communication-access/avatar/video_library")
         for f in vid_lib.glob("*.mp4"):
-            if f.stat().st_size > 50000:
+            if f.stat().st_size > 1000:
                 available.add(f.stem.upper())
         invalid_signs = [s for s in signs if s not in available]
         if invalid_signs:
@@ -944,3 +954,23 @@ if __name__ == "__main__":
         port=args.port,
         reload=args.reload
     )
+
+# English word -> ASL gloss mapping for common words
+ENGLISH_TO_ASL = {
+    "this": None, "the": None, "a": None, "an": None, "is": None,
+    "are": None, "i": "ME", "my": "MY", "your": "YOUR",
+    "app": "APP", "application": "APP",
+    "recognize": "RECOGNIZES", "recognizes": "RECOGNIZES", "recognition": "RECOGNITION",
+    "sign": "SIGN", "language": "LANGUAGE", "signing": "SIGN",
+    "can": "CAN", "communicate": "COMMUNICATE", "communication": "COMMUNICATE",
+    "learn": "LEARN", "learning": "LEARN",
+    "understand": "UNDERSTAND", "understanding": "UNDERSTAND",
+    "help": "HELP", "helping": "HELP",
+    "thank": "THANK_YOU", "thanks": "THANK_YOU",
+    "great": "GREAT", "good": "GOOD", "bad": "BAD",
+    "happy": "HAPPY", "sad": "SAD",
+    "yes": "YES", "no": "NO",
+    "please": "PLEASE", "sorry": "SORRY",
+    "hello": "HELLO", "hi": "HELLO", "goodbye": "GOODBYE", "bye": "GOODBYE",
+    "welcome": "WELCOME", "name": "NAME",
+}

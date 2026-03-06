@@ -1313,7 +1313,7 @@ class RealtimeAvatarGenerator:
         # Check video library for pre-recorded human signer videos FIRST
         video_lib = Path("/home/ubuntu/communication-access/avatar/video_library")
         lib_path = video_lib / f"{sign_name}.mp4"
-        if lib_path.exists() and lib_path.stat().st_size > 50000:
+        if lib_path.exists() and lib_path.stat().st_size > 1000:
             import subprocess as sp
             chk = sp.run(["file", str(lib_path)], capture_output=True, text=True)
             if "ISO Media" in chk.stdout or "MPEG" in chk.stdout:

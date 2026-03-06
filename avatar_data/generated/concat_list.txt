@@ -1,3 +1,5 @@
-file '/home/ubuntu/communication-access/avatar/video_library/HELLO.mp4'
-file '/home/ubuntu/communication-access/avatar/video_library/HOW.mp4'
-file '/home/ubuntu/communication-access/avatar/video_library/YOU.mp4'
+file '/home/ubuntu/communication-access/avatar/video_library/THIS.mp4'
+file '/home/ubuntu/communication-access/avatar/video_library/APP.mp4'
+file '/home/ubuntu/communication-access/avatar/video_library/RECOGNIZES.mp4'
+file '/home/ubuntu/communication-access/avatar/video_library/SIGN.mp4'
+file '/home/ubuntu/communication-access/avatar/video_library/LANGUAGE.mp4'

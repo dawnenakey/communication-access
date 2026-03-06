@@ -320,7 +320,7 @@ Example: HELLO MY NAME #JOHN NICE-TO-MEET-YOU"""
             })
 
             response = self.bedrock_client.invoke_model(
-                modelId="anthropic.claude-3-sonnet-20240229-v1:0",  # Use Sonnet for better translation
+                modelId="us.anthropic.claude-3-5-haiku-20241022-v1:0",  # Use Sonnet for better translation
                 body=body,
                 contentType="application/json",
                 accept="application/json"
