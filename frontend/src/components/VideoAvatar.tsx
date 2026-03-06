@@ -268,17 +268,10 @@ const fullUrl = url.startsWith('http')
     onVideoStart?.();
 
     try {
-      // Maximize GenASL: try full-sentence endpoint first (Bedrock gloss + ASLLVD)
+      // Use SonZo GenASL API only - no Supabase fallback
       let videos = await fetchGenASLSentence(sentence);
-      if (!videos) {
-        const signs = parseSentenceToSigns(sentence);
-        videos = await fetchVideoSequence(signs);
-      }
-      
-      // If no real videos available, use simulated signing with realistic avatar
-      if (videos.length === 0 || !videos.some(v => v.available && v.videoUrl)) {
+      if (!videos || videos.length === 0) {
         setIsLoading(false);
-        simulateSigning(sentence);
         return;
       }
 
